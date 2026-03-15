@@ -1,3 +1,7 @@
+-- UNIVERSAL v2 — v2.7.0 FIXED EDITION (Mount Obby Optimized)
+-- Fixed: Checkpoint TP + Touch, CP Detection, Auto Summit
+-- Optimized for: Mount Puasa, Mount Sawit, Mount Koplo, Mount Palma, Mount Extreme
+
 -- SERVICES
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -27,9 +31,9 @@ local State = {
     JumpPower = 50,
     FlySpeed = 50,
     CurrentTheme = 1,
+    AutoSummitRunning = false,
 }
 
--- Track themed elements for LIVE theme switching
 local ThemedElements = {}
 
 -- THEMES
@@ -107,11 +111,7 @@ end
 
 -- UTILITIES
 local function Tween(obj, props, duration, style, direction)
-    local tweenInfo = TweenInfo.new(
-        duration or 0.3,
-        style or Enum.EasingStyle.Quart,
-        direction or Enum.EasingDirection.Out
-    )
+    local tweenInfo = TweenInfo.new(duration or 0.3, style or Enum.EasingStyle.Quart, direction or Enum.EasingDirection.Out)
     local tween = TweenService:Create(obj, tweenInfo, props)
     tween:Play()
     return tween
@@ -124,7 +124,6 @@ local function CreateCorner(parent, radius)
     return corner
 end
 
--- [FIX] CreateStroke: reuse existing UIStroke to prevent duplicates
 local function CreateStroke(parent, color, thickness, transparency)
     local existing = parent:FindFirstChildOfClass("UIStroke")
     if existing then
@@ -183,12 +182,10 @@ local function Notify(title, text, duration)
     end)
 end
 
--- Register element for live theme switching
 local function RegisterThemed(obj, propMap)
     table.insert(ThemedElements, {Object = obj, Properties = propMap})
 end
 
--- [FIX] Apply theme to ALL registered elements (live switching)
 local function ApplyThemeToAll()
     local theme = GetTheme()
     for _, entry in ipairs(ThemedElements) do
@@ -203,6 +200,363 @@ local function ApplyThemeToAll()
             end
         end
     end
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- [FIX v2.7] SIMULASI TOUCH — Kunci utama agar CP & summit terdaftar
+-- ═══════════════════════════════════════════════════════════════
+local function SimulateTouch(part)
+    if not part or not part:IsA("BasePart") then return end
+    local root = GetRootPart()
+    if not root then return end
+
+    -- Method 1: firetouchinterest (executor function)
+    if firetouchinterest then
+        pcall(function()
+            firetouchinterest(root, part, 0)
+            task.wait(0.12)
+            firetouchinterest(root, part, 1)
+        end)
+        -- Touch with all character parts too
+        local char = GetCharacter()
+        if char then
+            for _, charPart in pairs(char:GetDescendants()) do
+                if charPart:IsA("BasePart") then
+                    pcall(function()
+                        firetouchinterest(charPart, part, 0)
+                        task.wait(0.05)
+                        firetouchinterest(charPart, part, 1)
+                    end)
+                end
+            end
+        end
+    end
+
+    -- Method 2: fireproximityprompt jika ada
+    local prompt = part:FindFirstChildOfClass("ProximityPrompt")
+    if not prompt and part.Parent then
+        prompt = part.Parent:FindFirstChildOfClass("ProximityPrompt")
+    end
+    if prompt and fireproximityprompt then
+        pcall(function() fireproximityprompt(prompt) end)
+    end
+end
+
+-- Teleport + Touch simulasi — teleport KE DALAM part
+local function TeleportAndTouch(targetCFrame, targetPart)
+    local root = GetRootPart()
+    if not root then return end
+
+    -- Teleport langsung ke posisi part
+    root.CFrame = targetCFrame
+    task.wait(0.1)
+
+    -- Simulasi touch pada target part
+    if targetPart then
+        SimulateTouch(targetPart)
+    end
+
+    -- Touch semua child BasePart di parent (untuk model checkpoint)
+    if targetPart and targetPart.Parent then
+        for _, child in pairs(targetPart.Parent:GetDescendants()) do
+            if child:IsA("BasePart") and child ~= targetPart then
+                pcall(function() SimulateTouch(child) end)
+            end
+        end
+    end
+
+    task.wait(0.05)
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- [FIX v2.7] CHECKPOINT SCANNER — Deteksi SEMUA jenis checkpoint
+-- ═══════════════════════════════════════════════════════════════
+local function ScanCheckpoints()
+    local cps = {}
+    local seen = {}
+
+    local namePatterns = {
+        "checkpoint", "cp", "stage", "check", "point",
+        "flag", "save", "spawn", "level", "zone",
+        "step", "platform", "pad", "plate",
+        "touch", "trigger", "goal", "mark", "node",
+        "waypoint", "progress", "section",
+    }
+
+    local folderPatterns = {
+        "checkpoint", "cp", "stage", "check", "point",
+        "flag", "save", "level", "zone", "obby",
+        "course", "path", "track", "mount", "climb",
+        "steps", "platforms", "pads", "waypoint",
+    }
+
+    -- Method 1: Find checkpoint folders
+    local cpFolders = {}
+    for _, obj in pairs(Workspace:GetDescendants()) do
+        if (obj:IsA("Folder") or obj:IsA("Model")) then
+            local name = obj.Name:lower()
+            for _, p in ipairs(folderPatterns) do
+                if name:find(p) then
+                    table.insert(cpFolders, obj)
+                    break
+                end
+            end
+        end
+    end
+
+    -- Method 2: Scan children dari folder checkpoint
+    for _, folder in ipairs(cpFolders) do
+        for _, child in pairs(folder:GetChildren()) do
+            local part, cf = nil, nil
+            if child:IsA("BasePart") then
+                part = child
+                cf = child.CFrame
+            elseif child:IsA("Model") then
+                local primary = child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
+                if primary then
+                    part = primary
+                    cf = primary.CFrame
+                end
+            end
+            if part and cf and not seen[child:GetFullName()] then
+                seen[child:GetFullName()] = true
+                local num = tonumber(child.Name:match("%d+"))
+                table.insert(cps, {
+                    Name = child.Name,
+                    Number = num or 0,
+                    CFrame = cf,
+                    Part = part,
+                })
+            end
+        end
+    end
+
+    -- Method 3: Scan BasePart dengan TouchTransmitter
+    for _, obj in pairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and not seen[obj:GetFullName()] then
+            local hasTT = obj:FindFirstChildOfClass("TouchTransmitter")
+            local name = obj.Name:lower()
+            local parentName = obj.Parent and obj.Parent.Name:lower() or ""
+            local isCP = false
+
+            if hasTT then
+                for _, p in ipairs(namePatterns) do
+                    if name:find(p) or parentName:find(p) then
+                        isCP = true
+                        break
+                    end
+                end
+                if not isCP and tonumber(obj.Name) then
+                    for _, p in ipairs(folderPatterns) do
+                        if parentName:find(p) then
+                            isCP = true
+                            break
+                        end
+                    end
+                end
+            end
+
+            if not isCP then
+                for _, p in ipairs(namePatterns) do
+                    if name:find(p) then
+                        local num = tonumber(name:match("%d+"))
+                        if num then
+                            isCP = true
+                            break
+                        end
+                    end
+                end
+            end
+
+            if isCP then
+                seen[obj:GetFullName()] = true
+                local num = tonumber(obj.Name:match("%d+"))
+                if not num and obj.Parent then
+                    num = tonumber(obj.Parent.Name:match("%d+"))
+                end
+                table.insert(cps, {
+                    Name = obj.Name,
+                    Number = num or 0,
+                    CFrame = obj.CFrame,
+                    Part = obj,
+                })
+            end
+        end
+    end
+
+    -- Method 4: Scan Model yang namanya match
+    for _, obj in pairs(Workspace:GetDescendants()) do
+        if obj:IsA("Model") and not seen[obj:GetFullName()] then
+            local name = obj.Name:lower()
+            for _, p in ipairs(namePatterns) do
+                if name:find(p) then
+                    local primary = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+                    if primary then
+                        seen[obj:GetFullName()] = true
+                        local num = tonumber(obj.Name:match("%d+"))
+                        table.insert(cps, {
+                            Name = obj.Name,
+                            Number = num or 0,
+                            CFrame = primary.CFrame,
+                            Part = primary,
+                        })
+                    end
+                    break
+                end
+            end
+        end
+    end
+
+    -- Method 5: Part bernama angka di folder checkpoint
+    for _, folder in ipairs(cpFolders) do
+        for _, child in pairs(folder:GetChildren()) do
+            if not seen[child:GetFullName()] then
+                local num = tonumber(child.Name)
+                if num then
+                    local part, cf = nil, nil
+                    if child:IsA("BasePart") then
+                        part = child
+                        cf = child.CFrame
+                    elseif child:IsA("Model") then
+                        local primary = child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
+                        if primary then
+                            part = primary
+                            cf = primary.CFrame
+                        end
+                    end
+                    if part and cf then
+                        seen[child:GetFullName()] = true
+                        table.insert(cps, {
+                            Name = child.Name,
+                            Number = num,
+                            CFrame = cf,
+                            Part = part,
+                        })
+                    end
+                end
+            end
+        end
+    end
+
+    -- Sort by number
+    table.sort(cps, function(a, b) return a.Number < b.Number end)
+
+    -- Remove position duplicates (within 5 studs)
+    local filtered = {}
+    for _, cp in ipairs(cps) do
+        local isDup = false
+        for _, ex in ipairs(filtered) do
+            if (cp.CFrame.Position - ex.CFrame.Position).Magnitude < 5 then
+                isDup = true
+                break
+            end
+        end
+        if not isDup then
+            table.insert(filtered, cp)
+        end
+    end
+
+    table.sort(filtered, function(a, b) return a.Number < b.Number end)
+    return filtered
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- [FIX v2.7] SCAN FINISH/SUMMIT ZONES
+-- ═══════════════════════════════════════════════════════════════
+local function ScanFinishZones()
+    local zones = {}
+    local finishPatterns = {
+        "finish", "end", "win", "complete", "done", "summit",
+        "top", "peak", "final", "goal", "reward", "prize",
+        "puncak", "selesai", "akhir", "menang",
+    }
+
+    for _, obj in pairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            local name = obj.Name:lower()
+            local parentName = obj.Parent and obj.Parent.Name:lower() or ""
+            for _, p in ipairs(finishPatterns) do
+                if name:find(p) or parentName:find(p) then
+                    table.insert(zones, {Name = obj.Name, Part = obj, CFrame = obj.CFrame})
+                    break
+                end
+            end
+        elseif obj:IsA("Model") then
+            local name = obj.Name:lower()
+            for _, p in ipairs(finishPatterns) do
+                if name:find(p) then
+                    local primary = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+                    if primary then
+                        table.insert(zones, {Name = obj.Name, Part = primary, CFrame = primary.CFrame})
+                    end
+                    break
+                end
+            end
+        end
+    end
+
+    return zones
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- [FIX v2.7] FIRE ALL RELATED REMOTES
+-- ═══════════════════════════════════════════════════════════════
+local function FireAllRemotes()
+    local fired = 0
+    local log = ""
+    local remotePatterns = {
+        "submit", "finish", "complete", "win", "done",
+        "summit", "reward", "claim", "collect",
+        "checkpoint", "save", "progress", "stage",
+        "clear", "pass", "beat",
+    }
+
+    -- Scan ReplicatedStorage
+    pcall(function()
+        for _, v in pairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
+            if v:IsA("RemoteEvent") then
+                local n = v.Name:lower()
+                for _, p in ipairs(remotePatterns) do
+                    if n:find(p) then
+                        pcall(function() v:FireServer(); fired = fired + 1; log = log .. "RE:" .. v.Name .. " " end)
+                        pcall(function() v:FireServer(true) end)
+                        pcall(function() v:FireServer(LocalPlayer) end)
+                        break
+                    end
+                end
+            elseif v:IsA("RemoteFunction") then
+                local n = v.Name:lower()
+                for _, p in ipairs(remotePatterns) do
+                    if n:find(p) then
+                        pcall(function() v:InvokeServer(); fired = fired + 1; log = log .. "RF:" .. v.Name .. " " end)
+                        pcall(function() v:InvokeServer(true) end)
+                        break
+                    end
+                end
+            end
+        end
+    end)
+
+    -- Scan Workspace
+    pcall(function()
+        for _, v in pairs(Workspace:GetDescendants()) do
+            if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
+                local n = v.Name:lower()
+                for _, p in ipairs(remotePatterns) do
+                    if n:find(p) then
+                        pcall(function()
+                            if v:IsA("RemoteEvent") then v:FireServer() else v:InvokeServer() end
+                            fired = fired + 1
+                            log = log .. v.Name .. " "
+                        end)
+                        break
+                    end
+                end
+            end
+        end
+    end)
+
+    return fired, log
 end
 
 -- DESTROY EXISTING GUI
@@ -266,9 +620,8 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
--- Scan line
+-- Scan line animation
 local ScanLine = Instance.new("Frame")
-ScanLine.Name = "ScanLine"
 ScanLine.Size = UDim2.new(1, 0, 0, 2)
 ScanLine.Position = UDim2.new(0, 0, 0, 0)
 ScanLine.BackgroundColor3 = GetTheme().Primary
@@ -288,7 +641,6 @@ end)
 
 -- SIDEBAR
 local Sidebar = Instance.new("Frame")
-Sidebar.Name = "Sidebar"
 Sidebar.Size = UDim2.new(0, 190, 1, 0)
 Sidebar.BackgroundColor3 = GetTheme().Surface
 Sidebar.BorderSizePixel = 0
@@ -345,7 +697,7 @@ local LogoSub = Instance.new("TextLabel")
 LogoSub.Size = UDim2.new(1, -60, 0, 14)
 LogoSub.Position = UDim2.new(0, 56, 0, 34)
 LogoSub.BackgroundTransparency = 1
-LogoSub.Text = "v2.6.0 — Fixed Edition"
+LogoSub.Text = "v2.7.0 — Mount Obby Fixed"
 LogoSub.TextColor3 = GetTheme().TextSecondary
 LogoSub.TextSize = 9
 LogoSub.Font = Enum.Font.Gotham
@@ -433,20 +785,15 @@ for i, item in ipairs(NavItems) do
     end)
 
     btn.MouseEnter:Connect(function()
-        if State.ActivePanel ~= item.id then
-            Tween(btn, {BackgroundTransparency = 0.9}, 0.15)
-        end
+        if State.ActivePanel ~= item.id then Tween(btn, {BackgroundTransparency = 0.9}, 0.15) end
     end)
     btn.MouseLeave:Connect(function()
-        if State.ActivePanel ~= item.id then
-            Tween(btn, {BackgroundTransparency = 1}, 0.15)
-        end
+        if State.ActivePanel ~= item.id then Tween(btn, {BackgroundTransparency = 1}, 0.15) end
     end)
 end
 
 -- CONTENT AREA
 local ContentArea = Instance.new("ScrollingFrame")
-ContentArea.Name = "ContentArea"
 ContentArea.Size = UDim2.new(1, -192, 1, -44)
 ContentArea.Position = UDim2.new(0, 192, 0, 44)
 ContentArea.BackgroundTransparency = 1
@@ -518,13 +865,11 @@ local function CreatePanel(name, visible)
     panel.BackgroundTransparency = 1
     panel.Visible = visible or false
     panel.Parent = ContentArea
-
     local layout = Instance.new("UIListLayout")
     layout.SortOrder = Enum.SortOrder.LayoutOrder
     layout.Padding = UDim.new(0, 8)
     layout.Parent = panel
     CreatePadding(panel, 14, 18, 14, 18)
-
     ContentPanels[name] = panel
     return panel
 end
@@ -535,7 +880,6 @@ local function CreateSectionHeader(parent, text, order)
     container.BackgroundTransparency = 1
     container.LayoutOrder = order or 0
     container.Parent = parent
-
     local line = Instance.new("Frame")
     line.Size = UDim2.new(0, 3, 0, 16)
     line.Position = UDim2.new(0, 0, 0.5, 0)
@@ -545,7 +889,6 @@ local function CreateSectionHeader(parent, text, order)
     line.Parent = container
     CreateCorner(line, 2)
     RegisterThemed(line, {BackgroundColor3 = "Primary"})
-
     local header = Instance.new("TextLabel")
     header.Size = UDim2.new(1, -12, 1, 0)
     header.Position = UDim2.new(0, 12, 0, 0)
@@ -626,7 +969,6 @@ local function CreateToggle(parent, label, description, order, callback)
             Tween(toggleBg, {BackgroundColor3 = GetTheme().Primary}, 0.25)
             Tween(toggleKnob, {Position = UDim2.new(0, 26, 0.5, 0), BackgroundColor3 = Color3.new(1,1,1)}, 0.25)
             Tween(labelText, {TextColor3 = GetTheme().Primary}, 0.25)
-            -- [FIX] Update existing stroke
             rowStroke.Color = GetTheme().Primary
             rowStroke.Transparency = 0.5
         else
@@ -705,30 +1047,6 @@ local function CreateSlider(parent, label, min, max, default, order, callback)
     CreateCorner(knob, 7)
     RegisterThemed(knob, {BackgroundColor3 = "Primary"})
 
-    local minL = Instance.new("TextLabel")
-    minL.Size = UDim2.new(0.2, 0, 0, 14)
-    minL.Position = UDim2.new(0, 16, 0, 48)
-    minL.BackgroundTransparency = 1
-    minL.Text = tostring(min)
-    minL.TextColor3 = GetTheme().TextSecondary
-    minL.TextSize = 9
-    minL.Font = Enum.Font.Gotham
-    minL.TextXAlignment = Enum.TextXAlignment.Left
-    minL.Parent = container
-    RegisterThemed(minL, {TextColor3 = "TextSecondary"})
-
-    local maxL = Instance.new("TextLabel")
-    maxL.Size = UDim2.new(0.2, 0, 0, 14)
-    maxL.Position = UDim2.new(0.8, -16, 0, 48)
-    maxL.BackgroundTransparency = 1
-    maxL.Text = tostring(max)
-    maxL.TextColor3 = GetTheme().TextSecondary
-    maxL.TextSize = 9
-    maxL.Font = Enum.Font.Gotham
-    maxL.TextXAlignment = Enum.TextXAlignment.Right
-    maxL.Parent = container
-    RegisterThemed(maxL, {TextColor3 = "TextSecondary"})
-
     local sliderBtn = Instance.new("TextButton")
     sliderBtn.Size = UDim2.new(1, -32, 0, 24)
     sliderBtn.Position = UDim2.new(0, 16, 0, 30)
@@ -737,7 +1055,6 @@ local function CreateSlider(parent, label, min, max, default, order, callback)
     sliderBtn.Parent = container
 
     local sliding = false
-
     local function UpdateSlider(inputX)
         local tPos = track.AbsolutePosition.X
         local tSize = track.AbsoluteSize.X
@@ -750,7 +1067,6 @@ local function CreateSlider(parent, label, min, max, default, order, callback)
     end
 
     sliderBtn.MouseButton1Down:Connect(function() sliding = true end)
-    -- [FIX] Touch support for sliders
     UserInputService.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             sliding = false
@@ -779,7 +1095,6 @@ local function CreateActionButton(parent, label, color, order, callback)
     btn.Parent = parent
     CreateCorner(btn, 10)
     CreateStroke(btn, color or GetTheme().Primary, 1, 0.6)
-
     btn.MouseEnter:Connect(function() Tween(btn, {BackgroundTransparency = 0.65}, 0.15) end)
     btn.MouseLeave:Connect(function() Tween(btn, {BackgroundTransparency = 0.85}, 0.15) end)
     btn.MouseButton1Click:Connect(function()
@@ -839,7 +1154,6 @@ local serverStats = {
 local serverInfoCards = {}
 for _, stat in ipairs(serverStats) do
     local card = Instance.new("Frame")
-    card.Name = "Card_" .. stat[1]
     card.BackgroundColor3 = GetTheme().SurfaceHover
     card.BorderSizePixel = 0
     card.LayoutOrder = stat[3]
@@ -878,9 +1192,9 @@ for _, stat in ipairs(serverStats) do
 end
 
 -- ═══════════════════════════════════════════════════════════════
--- [FIX] CHECKPOINT TELEPORT with dynamic scanning & selection
+-- [FIX v2.7] CHECKPOINT TELEPORT + AUTO SUMMIT
 -- ═══════════════════════════════════════════════════════════════
-CreateSectionHeader(serverPanel, "TELEPORT ACTIONS", 3)
+CreateSectionHeader(serverPanel, "TELEPORT & AUTO SUMMIT", 3)
 
 local tpFrame = Instance.new("Frame")
 tpFrame.Size = UDim2.new(1, 0, 0, 0)
@@ -894,87 +1208,51 @@ tpLayout.SortOrder = Enum.SortOrder.LayoutOrder
 tpLayout.Padding = UDim.new(0, 6)
 tpLayout.Parent = tpFrame
 
--- Spawn teleport button
-local spawnBtnRow = Instance.new("Frame")
-spawnBtnRow.Size = UDim2.new(1, 0, 0, 42)
-spawnBtnRow.BackgroundTransparency = 1
-spawnBtnRow.LayoutOrder = 1
-spawnBtnRow.Parent = tpFrame
+-- Quick action buttons
+local quickRow = Instance.new("Frame")
+quickRow.Size = UDim2.new(1, 0, 0, 42)
+quickRow.BackgroundTransparency = 1
+quickRow.LayoutOrder = 1
+quickRow.Parent = tpFrame
 
-local spawnBtnLayout = Instance.new("UIGridLayout")
-spawnBtnLayout.CellSize = UDim2.new(0.48, 0, 0, 42)
-spawnBtnLayout.CellPadding = UDim2.new(0.04, 0, 0, 6)
-spawnBtnLayout.SortOrder = Enum.SortOrder.LayoutOrder
-spawnBtnLayout.Parent = spawnBtnRow
+local quickLayout = Instance.new("UIGridLayout")
+quickLayout.CellSize = UDim2.new(0.48, 0, 0, 42)
+quickLayout.CellPadding = UDim2.new(0.04, 0, 0, 6)
+quickLayout.SortOrder = Enum.SortOrder.LayoutOrder
+quickLayout.Parent = quickRow
 
-CreateActionButton(spawnBtnRow, "🏠 TP to Spawn", GetTheme().Primary, 1, function()
+CreateActionButton(quickRow, "🏠 TP to Spawn", GetTheme().Primary, 1, function()
     local root = GetRootPart()
     if not root then return end
-    local spawn = nil
-    for _, n in ipairs({"SpawnLocation", "Spawn", "spawn", "SpawnPoint"}) do
-        spawn = Workspace:FindFirstChild(n, true)
-        if spawn then break end
+    local spawnPart = Workspace:FindFirstChildOfClass("SpawnLocation")
+    if not spawnPart then
+        for _, n in ipairs({"SpawnLocation", "Spawn", "spawn", "SpawnPoint"}) do
+            spawnPart = Workspace:FindFirstChild(n, true)
+            if spawnPart then break end
+        end
     end
-    if not spawn then spawn = Workspace:FindFirstChildOfClass("SpawnLocation") end
-    if spawn and spawn:IsA("BasePart") then
-        root.CFrame = spawn.CFrame + Vector3.new(0, 5, 0)
+    if spawnPart and spawnPart:IsA("BasePart") then
+        root.CFrame = spawnPart.CFrame + Vector3.new(0, 5, 0)
+        SimulateTouch(spawnPart)
         Notify("Teleport", "Teleported to Spawn!")
     else
         Notify("Teleport", "No spawn found!")
     end
 end)
 
--- [FIX] Checkpoint scanner
-local function ScanCheckpoints()
-    local cps = {}
-    local patterns = {"checkpoint", "cp", "stage", "check", "point"}
-    pcall(function()
-        for _, obj in pairs(Workspace:GetDescendants()) do
-            if obj:IsA("BasePart") or obj:IsA("Model") then
-                local name = obj.Name:lower()
-                local isCP = false
-                local cpNum = nil
-                for _, p in ipairs(patterns) do
-                    if name:find(p) then
-                        isCP = true
-                        cpNum = tonumber(name:match("%d+"))
-                        break
-                    end
-                end
-                if not isCP and obj.Parent then
-                    local pName = obj.Parent.Name:lower()
-                    for _, p in ipairs(patterns) do
-                        if pName:find(p) then
-                            isCP = true
-                            cpNum = tonumber(obj.Name:match("%d+"))
-                            break
-                        end
-                    end
-                end
-                if isCP then
-                    local cf = nil
-                    if obj:IsA("BasePart") then
-                        cf = obj.CFrame
-                    elseif obj:IsA("Model") then
-                        pcall(function()
-                            local part = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
-                            if part then cf = part.CFrame end
-                        end)
-                    end
-                    if cf then
-                        table.insert(cps, {Name = obj.Name, Number = cpNum or #cps + 1, CFrame = cf})
-                    end
-                end
-            end
-        end
-    end)
-    table.sort(cps, function(a, b) return a.Number < b.Number end)
-    return cps
-end
+CreateActionButton(quickRow, "🏔️ TP to Finish", GetTheme().Success, 2, function()
+    local zones = ScanFinishZones()
+    if #zones > 0 then
+        TeleportAndTouch(zones[1].CFrame, zones[1].Part)
+        Notify("Teleport", "TP + Touch: " .. zones[1].Name)
+    else
+        Notify("Teleport", "No finish zone found!")
+    end
+end)
 
 -- CP Selector UI
 local cpFrame = Instance.new("Frame")
-cpFrame.Size = UDim2.new(1, 0, 0, 200)
+cpFrame.Size = UDim2.new(1, 0, 0, 240)
 cpFrame.BackgroundColor3 = GetTheme().SurfaceHover
 cpFrame.BorderSizePixel = 0
 cpFrame.LayoutOrder = 2
@@ -992,10 +1270,10 @@ CreateCorner(cpTitle, 10)
 RegisterThemed(cpTitle, {BackgroundColor3 = "Surface"})
 
 local cpTitleLabel = Instance.new("TextLabel")
-cpTitleLabel.Size = UDim2.new(0.6, 0, 1, 0)
+cpTitleLabel.Size = UDim2.new(0.4, 0, 1, 0)
 cpTitleLabel.Position = UDim2.new(0, 14, 0, 0)
 cpTitleLabel.BackgroundTransparency = 1
-cpTitleLabel.Text = "🚩 CHECKPOINT TELEPORT"
+cpTitleLabel.Text = "🚩 CHECKPOINT TP"
 cpTitleLabel.TextColor3 = GetTheme().Primary
 cpTitleLabel.TextSize = 11
 cpTitleLabel.Font = Enum.Font.GothamBold
@@ -1004,8 +1282,8 @@ cpTitleLabel.Parent = cpTitle
 RegisterThemed(cpTitleLabel, {TextColor3 = "Primary"})
 
 local cpRefreshBtn = Instance.new("TextButton")
-cpRefreshBtn.Size = UDim2.new(0, 70, 0, 26)
-cpRefreshBtn.Position = UDim2.new(1, -80, 0.5, 0)
+cpRefreshBtn.Size = UDim2.new(0, 60, 0, 26)
+cpRefreshBtn.Position = UDim2.new(1, -150, 0.5, 0)
 cpRefreshBtn.AnchorPoint = Vector2.new(0, 0.5)
 cpRefreshBtn.BackgroundColor3 = GetTheme().Primary
 cpRefreshBtn.BackgroundTransparency = 0.85
@@ -1016,6 +1294,20 @@ cpRefreshBtn.Font = Enum.Font.GothamBold
 cpRefreshBtn.BorderSizePixel = 0
 cpRefreshBtn.Parent = cpTitle
 CreateCorner(cpRefreshBtn, 6)
+
+local cpTpAllBtn = Instance.new("TextButton")
+cpTpAllBtn.Size = UDim2.new(0, 78, 0, 26)
+cpTpAllBtn.Position = UDim2.new(1, -84, 0.5, 0)
+cpTpAllBtn.AnchorPoint = Vector2.new(0, 0.5)
+cpTpAllBtn.BackgroundColor3 = GetTheme().Success
+cpTpAllBtn.BackgroundTransparency = 0.85
+cpTpAllBtn.Text = "⚡ TP All"
+cpTpAllBtn.TextColor3 = GetTheme().Success
+cpTpAllBtn.TextSize = 10
+cpTpAllBtn.Font = Enum.Font.GothamBold
+cpTpAllBtn.BorderSizePixel = 0
+cpTpAllBtn.Parent = cpTitle
+CreateCorner(cpTpAllBtn, 6)
 
 local cpCountLabel = Instance.new("TextLabel")
 cpCountLabel.Size = UDim2.new(1, -20, 0, 18)
@@ -1030,7 +1322,7 @@ cpCountLabel.Parent = cpFrame
 RegisterThemed(cpCountLabel, {TextColor3 = "TextSecondary"})
 
 local cpScroll = Instance.new("ScrollingFrame")
-cpScroll.Size = UDim2.new(1, -16, 0, 130)
+cpScroll.Size = UDim2.new(1, -16, 0, 170)
 cpScroll.Position = UDim2.new(0, 8, 0, 62)
 cpScroll.BackgroundTransparency = 1
 cpScroll.ScrollBarThickness = 3
@@ -1047,23 +1339,26 @@ cpGridLayout.CellPadding = UDim2.new(0.04, 0, 0, 4)
 cpGridLayout.SortOrder = Enum.SortOrder.LayoutOrder
 cpGridLayout.Parent = cpScroll
 
+local currentCPs = {}
+
 local function RefreshCheckpoints()
     for _, c in ipairs(cpScroll:GetChildren()) do
         if c:IsA("TextButton") then c:Destroy() end
     end
-    local cps = ScanCheckpoints()
-    if #cps == 0 then
-        cpCountLabel.Text = "No checkpoints found (0 CP)"
+    currentCPs = ScanCheckpoints()
+    if #currentCPs == 0 then
+        cpCountLabel.Text = "❌ No checkpoints found (0 CP)"
     else
-        cpCountLabel.Text = "Found " .. #cps .. " checkpoint(s) — Click to teleport"
-        for i, cp in ipairs(cps) do
+        cpCountLabel.Text = "✅ Found " .. #currentCPs .. " CP(s) — Click = TP + Touch"
+        for i, cp in ipairs(currentCPs) do
+            local displayName = cp.Number > 0 and ("🚩 CP " .. cp.Number .. " — " .. cp.Name) or ("🚩 " .. cp.Name)
             local cpBtn = Instance.new("TextButton")
             cpBtn.Size = UDim2.new(0.48, 0, 0, 34)
             cpBtn.BackgroundColor3 = GetTheme().Surface
             cpBtn.BackgroundTransparency = 0.3
-            cpBtn.Text = "🚩 " .. cp.Name
+            cpBtn.Text = displayName
             cpBtn.TextColor3 = GetTheme().Text
-            cpBtn.TextSize = 10
+            cpBtn.TextSize = 9
             cpBtn.Font = Enum.Font.GothamMedium
             cpBtn.TextTruncate = Enum.TextTruncate.AtEnd
             cpBtn.LayoutOrder = i
@@ -1072,39 +1367,49 @@ local function RefreshCheckpoints()
             CreateCorner(cpBtn, 8)
             CreateStroke(cpBtn, GetTheme().Border, 1, 0.5)
 
-            cpBtn.MouseEnter:Connect(function()
-                Tween(cpBtn, {BackgroundTransparency = 0.1}, 0.15)
-            end)
-            cpBtn.MouseLeave:Connect(function()
-                Tween(cpBtn, {BackgroundTransparency = 0.3}, 0.15)
-            end)
+            cpBtn.MouseEnter:Connect(function() Tween(cpBtn, {BackgroundTransparency = 0.1}, 0.15) end)
+            cpBtn.MouseLeave:Connect(function() Tween(cpBtn, {BackgroundTransparency = 0.3}, 0.15) end)
             cpBtn.MouseButton1Click:Connect(function()
-                local root = GetRootPart()
-                if root and cp.CFrame then
-                    root.CFrame = cp.CFrame + Vector3.new(0, 5, 0)
-                    Notify("Teleport", "TP to " .. cp.Name .. "!")
-                    Tween(cpBtn, {BackgroundColor3 = GetTheme().Success}, 0.15)
-                    wait(0.3)
-                    Tween(cpBtn, {BackgroundColor3 = GetTheme().Surface}, 0.15)
-                end
+                TeleportAndTouch(cp.CFrame, cp.Part)
+                Notify("Teleport", "TP + Touch: " .. cp.Name)
+                Tween(cpBtn, {BackgroundColor3 = GetTheme().Success}, 0.15)
+                wait(0.3)
+                Tween(cpBtn, {BackgroundColor3 = GetTheme().Surface}, 0.15)
             end)
         end
     end
 end
 
 cpRefreshBtn.MouseButton1Click:Connect(function()
-    cpCountLabel.Text = "Scanning..."
+    cpCountLabel.Text = "🔍 Scanning..."
     wait(0.1)
     RefreshCheckpoints()
+end)
+
+cpTpAllBtn.MouseButton1Click:Connect(function()
+    if #currentCPs == 0 then
+        Notify("TP All", "No CPs! Scan first.")
+        return
+    end
+    Notify("⚡ TP All", "Going through " .. #currentCPs .. " CPs...")
+    spawn(function()
+        for i, cp in ipairs(currentCPs) do
+            cpCountLabel.Text = "⚡ TP " .. i .. "/" .. #currentCPs .. " — " .. cp.Name
+            TeleportAndTouch(cp.CFrame, cp.Part)
+            task.wait(0.3)
+        end
+        cpCountLabel.Text = "✅ All " .. #currentCPs .. " CPs touched!"
+        Notify("✅ TP All", "Done! " .. #currentCPs .. " CPs touched")
+    end)
 end)
 
 spawn(function() wait(1); RefreshCheckpoints() end)
 
 -- ═══════════════════════════════════════════════════════════════
--- [FIX] AUTO SUBMIT — improved detection & feedback
+-- [FIX v2.7] AUTO SUMMIT PANEL
 -- ═══════════════════════════════════════════════════════════════
 local asFrame = Instance.new("Frame")
-asFrame.Size = UDim2.new(1, 0, 0, 140)
+asFrame.Size = UDim2.new(1, 0, 0, 190)
 asFrame.BackgroundColor3 = GetTheme().SurfaceHover
 asFrame.BorderSizePixel = 0
 asFrame.LayoutOrder = 3
@@ -1114,10 +1419,10 @@ CreateStroke(asFrame, GetTheme().Border, 1)
 RegisterThemed(asFrame, {BackgroundColor3 = "SurfaceHover"})
 
 local asTitle = Instance.new("TextLabel")
-asTitle.Size = UDim2.new(1, -20, 0, 28)
+asTitle.Size = UDim2.new(1, -20, 0, 24)
 asTitle.Position = UDim2.new(0, 14, 0, 6)
 asTitle.BackgroundTransparency = 1
-asTitle.Text = "▶️ AUTO SUBMIT / FINISH"
+asTitle.Text = "🏔️ AUTO SUMMIT (Mount Obby)"
 asTitle.TextColor3 = GetTheme().Success
 asTitle.TextSize = 11
 asTitle.Font = Enum.Font.GothamBold
@@ -1125,102 +1430,201 @@ asTitle.TextXAlignment = Enum.TextXAlignment.Left
 asTitle.Parent = asFrame
 
 local asDesc = Instance.new("TextLabel")
-asDesc.Size = UDim2.new(1, -20, 0, 14)
-asDesc.Position = UDim2.new(0, 14, 0, 32)
+asDesc.Size = UDim2.new(1, -20, 0, 24)
+asDesc.Position = UDim2.new(0, 14, 0, 28)
 asDesc.BackgroundTransparency = 1
-asDesc.Text = "Fires submit/finish/complete remotes + TP to finish zone"
+asDesc.Text = "TP all CP + Touch → TP Finish + Touch → Fire Remotes → Loop"
 asDesc.TextColor3 = GetTheme().TextSecondary
 asDesc.TextSize = 9
 asDesc.Font = Enum.Font.Gotham
 asDesc.TextXAlignment = Enum.TextXAlignment.Left
+asDesc.TextWrapped = true
 asDesc.Parent = asFrame
 RegisterThemed(asDesc, {TextColor3 = "TextSecondary"})
 
 local asBtnRow = Instance.new("Frame")
 asBtnRow.Size = UDim2.new(1, -16, 0, 36)
-asBtnRow.Position = UDim2.new(0, 8, 0, 50)
+asBtnRow.Position = UDim2.new(0, 8, 0, 56)
 asBtnRow.BackgroundTransparency = 1
 asBtnRow.Parent = asFrame
 
 local asBtnLayout = Instance.new("UIGridLayout")
-asBtnLayout.CellSize = UDim2.new(0.48, 0, 0, 36)
-asBtnLayout.CellPadding = UDim2.new(0.04, 0, 0, 4)
+asBtnLayout.CellSize = UDim2.new(0.31, 0, 0, 36)
+asBtnLayout.CellPadding = UDim2.new(0.035, 0, 0, 4)
 asBtnLayout.SortOrder = Enum.SortOrder.LayoutOrder
 asBtnLayout.Parent = asBtnRow
 
 local asLog = Instance.new("TextLabel")
-asLog.Size = UDim2.new(1, -20, 0, 40)
-asLog.Position = UDim2.new(0, 14, 0, 92)
+asLog.Size = UDim2.new(1, -20, 0, 80)
+asLog.Position = UDim2.new(0, 14, 0, 98)
 asLog.BackgroundTransparency = 1
-asLog.Text = ""
+asLog.Text = "Ready — Press Auto Summit to start"
 asLog.TextColor3 = GetTheme().TextSecondary
 asLog.TextSize = 9
 asLog.Font = Enum.Font.Code
 asLog.TextXAlignment = Enum.TextXAlignment.Left
 asLog.TextWrapped = true
+asLog.TextYAlignment = Enum.TextYAlignment.Top
 asLog.Parent = asFrame
 RegisterThemed(asLog, {TextColor3 = "TextSecondary"})
 
-CreateActionButton(asBtnRow, "▶️ Auto Submit", GetTheme().Success, 1, function()
-    local fired = 0
-    local log = ""
-    pcall(function()
-        for _, v in pairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
-            if v:IsA("RemoteEvent") then
-                local n = v.Name:lower()
-                if n:find("submit") or n:find("finish") or n:find("complete") or n:find("win") or n:find("done") then
-                    pcall(function() v:FireServer(); fired = fired + 1; log = log .. "✅ " .. v.Name .. " " end)
-                end
-            elseif v:IsA("RemoteFunction") then
-                local n = v.Name:lower()
-                if n:find("submit") or n:find("finish") or n:find("complete") then
-                    pcall(function() v:InvokeServer(); fired = fired + 1; log = log .. "✅ " .. v.Name .. " " end)
-                end
-            end
+-- AUTO SUMMIT (single run)
+CreateActionButton(asBtnRow, "🏔️ Summit 1x", GetTheme().Success, 1, function()
+    if State.AutoSummitRunning then
+        State.AutoSummitRunning = false
+        asLog.Text = "⏹️ Stopped"
+        return
+    end
+    State.AutoSummitRunning = true
+    spawn(function()
+        local totalLog = ""
+        local function Log(msg)
+            totalLog = msg .. "\n" .. totalLog
+            if #totalLog > 400 then totalLog = totalLog:sub(1, 400) end
+            asLog.Text = totalLog
         end
-        -- TP to finish zone
-        for _, v in pairs(Workspace:GetDescendants()) do
-            if v:IsA("BasePart") then
-                local n = v.Name:lower()
-                if n:find("finish") or n:find("end") or n:find("win") or n:find("complete") then
+
+        Log("🔍 Scanning checkpoints...")
+        local cps = ScanCheckpoints()
+        Log("✅ Found " .. #cps .. " CPs")
+
+        if #cps > 0 then
+            Log("🚩 Teleporting through CPs...")
+            for i, cp in ipairs(cps) do
+                if not State.AutoSummitRunning then Log("⏹️ Stopped"); return end
+                Log("📍 CP " .. i .. "/" .. #cps .. ": " .. cp.Name)
+                TeleportAndTouch(cp.CFrame, cp.Part)
+                task.wait(0.25)
+            end
+            Log("✅ All CPs touched!")
+        end
+
+        if not State.AutoSummitRunning then return end
+
+        Log("🏔️ Scanning finish zones...")
+        local zones = ScanFinishZones()
+        Log("✅ Found " .. #zones .. " finish zone(s)")
+
+        for _, zone in ipairs(zones) do
+            if not State.AutoSummitRunning then return end
+            Log("📍 Finish: " .. zone.Name)
+            TeleportAndTouch(zone.CFrame, zone.Part)
+            task.wait(0.2)
+            SimulateTouch(zone.Part)
+            task.wait(0.15)
+            SimulateTouch(zone.Part)
+        end
+
+        if not State.AutoSummitRunning then return end
+
+        Log("📡 Firing remotes...")
+        local fired, remoteLog = FireAllRemotes()
+        if fired > 0 then Log("✅ Fired " .. fired .. " remotes: " .. remoteLog) end
+
+        -- Re-touch finish
+        for _, zone in ipairs(zones) do
+            TeleportAndTouch(zone.CFrame, zone.Part)
+            task.wait(0.2)
+        end
+
+        Log("═══════════════════")
+        Log("🏔️ SUMMIT COMPLETE!")
+        Log("CPs:" .. #cps .. " Finish:" .. #zones .. " Remotes:" .. fired)
+        Notify("🏔️ Summit", "Done! CPs:" .. #cps .. " R:" .. fired)
+        State.AutoSummitRunning = false
+    end)
+end)
+
+-- LOOP SUMMIT
+CreateActionButton(asBtnRow, "🔁 Loop", Color3.fromHex("#ffaa00"), 2, function()
+    if State.AutoSummitRunning then
+        State.AutoSummitRunning = false
+        asLog.Text = "⏹️ Loop stopped"
+        Notify("Loop", "Stopped!")
+        return
+    end
+    State.AutoSummitRunning = true
+    Notify("🔁 Loop", "Starting infinite summit loop...")
+    spawn(function()
+        local loopCount = 0
+        while State.AutoSummitRunning do
+            loopCount = loopCount + 1
+            asLog.Text = "🔁 Loop #" .. loopCount .. "..."
+
+            local cps = ScanCheckpoints()
+            for i, cp in ipairs(cps) do
+                if not State.AutoSummitRunning then return end
+                asLog.Text = "🔁 #" .. loopCount .. " CP " .. i .. "/" .. #cps
+                TeleportAndTouch(cp.CFrame, cp.Part)
+                task.wait(0.2)
+            end
+
+            if not State.AutoSummitRunning then return end
+
+            local zones = ScanFinishZones()
+            for _, zone in ipairs(zones) do
+                if not State.AutoSummitRunning then return end
+                TeleportAndTouch(zone.CFrame, zone.Part)
+                task.wait(0.2)
+                SimulateTouch(zone.Part)
+                task.wait(0.1)
+                SimulateTouch(zone.Part)
+            end
+
+            local fired = FireAllRemotes()
+
+            -- Re-touch finish
+            for _, zone in ipairs(zones) do
+                TeleportAndTouch(zone.CFrame, zone.Part)
+                task.wait(0.15)
+            end
+
+            asLog.Text = "🔁 #" .. loopCount .. " done! CPs:" .. #cps .. " R:" .. fired .. " | Wait 2s..."
+            Notify("🔁 Loop #" .. loopCount, "Summit complete!")
+
+            task.wait(2)
+
+            -- TP back to spawn
+            if State.AutoSummitRunning then
+                local spawnPart = Workspace:FindFirstChildOfClass("SpawnLocation")
+                if spawnPart then
                     local root = GetRootPart()
-                    if root then
-                        root.CFrame = v.CFrame + Vector3.new(0, 3, 0)
-                        log = log .. "📍 TP:" .. v.Name
-                        fired = fired + 1
-                    end
-                    break
+                    if root then root.CFrame = spawnPart.CFrame + Vector3.new(0, 5, 0) end
                 end
+                task.wait(1)
             end
         end
     end)
-    if fired > 0 then
-        asLog.Text = log .. " | Total: " .. fired
-        Notify("Auto Submit", fired .. " action(s) fired!")
-    else
-        asLog.Text = "❌ No submit/finish remotes found"
-        Notify("Auto Submit", "No remotes found!")
-    end
 end)
 
-CreateActionButton(asBtnRow, "🔍 Scan Remotes", GetTheme().Primary, 2, function()
+-- SCAN REMOTES
+CreateActionButton(asBtnRow, "🔍 Remotes", GetTheme().Primary, 3, function()
+    local remotePatterns = {
+        "submit", "finish", "complete", "win", "done", "summit",
+        "reward", "claim", "collect", "checkpoint", "save", "progress",
+        "stage", "clear", "pass", "beat",
+    }
     local found = 0
     local log = ""
     pcall(function()
         for _, v in pairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
             if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
                 local n = v.Name:lower()
-                if n:find("submit") or n:find("finish") or n:find("complete") or n:find("win") or n:find("done") then
-                    found = found + 1
-                    log = log .. v.Name .. " "
+                for _, p in ipairs(remotePatterns) do
+                    if n:find(p) then
+                        found = found + 1
+                        log = log .. v.ClassName:sub(1,2) .. ":" .. v.Name .. "\n"
+                        break
+                    end
                 end
             end
         end
     end)
-    asLog.Text = found > 0 and ("📡 " .. found .. " found: " .. log) or "❌ None found"
+    asLog.Text = found > 0 and ("📡 " .. found .. " remotes:\n" .. log) or "❌ No relevant remotes"
+    Notify("Scan", found .. " remotes found")
 end)
 
--- Player List
+-- PLAYER LIST
 CreateSectionHeader(serverPanel, "PLAYER LIST", 5)
 
 local plFrame = Instance.new("Frame")
@@ -1275,10 +1679,8 @@ plListLayout.Parent = plScroll
 local function RefreshPlayerList(q)
     for _, c in ipairs(plScroll:GetChildren()) do if c:IsA("Frame") then c:Destroy() end end
     for i, p in ipairs(Players:GetPlayers()) do
-        local nm = p.Name:lower()
-        local dn = p.DisplayName:lower()
         local query = (q or ""):lower()
-        if query == "" or nm:find(query) or dn:find(query) then
+        if query == "" or p.Name:lower():find(query) or p.DisplayName:lower():find(query) then
             local row = Instance.new("Frame")
             row.Size = UDim2.new(1, 0, 0, 36)
             row.BackgroundColor3 = GetTheme().Surface
@@ -1341,7 +1743,7 @@ end)
 CreateSlider(utilPanel, "JUMP POWER", 0, 500, 50, 3, function(v)
     State.JumpPower = v; local h = GetHumanoid(); if h then h.JumpPower = v end
 end)
-CreateToggle(utilPanel, "NOCLIP", "Walk through walls (Press N to toggle)", 4, function(e) State.NoclipEnabled = e end)
+CreateToggle(utilPanel, "NOCLIP", "Walk through walls (Press N)", 4, function(e) State.NoclipEnabled = e end)
 
 CreateSectionHeader(utilPanel, "SERVER UTILITIES", 5)
 local ubFrame = Instance.new("Frame")
@@ -1383,7 +1785,7 @@ CreateActionButton(ubFrame, "🔀 Server Hop", Color3.fromHex("#7b2dff"), 4, fun
 end)
 
 -- ═══════════════════════════════════════════════════════════════
--- PANEL 4: SCRIPT ANALYZER
+-- PANEL 4: ANALYZER
 -- ═══════════════════════════════════════════════════════════════
 local analyzerPanel = CreatePanel("analyzer", false)
 CreateSectionHeader(analyzerPanel, "DETECTED SCRIPTS", 1)
@@ -1490,7 +1892,6 @@ for _, d in ipairs({
     card.Parent = piFrame
     CreateCorner(card, 8)
     RegisterThemed(card, {BackgroundColor3 = "Surface"})
-
     local lb = Instance.new("TextLabel")
     lb.Size = UDim2.new(1, -10, 0, 14)
     lb.Position = UDim2.new(0, 5, 0, 6)
@@ -1502,7 +1903,6 @@ for _, d in ipairs({
     lb.TextXAlignment = Enum.TextXAlignment.Left
     lb.Parent = card
     RegisterThemed(lb, {TextColor3 = "TextSecondary"})
-
     local vl = Instance.new("TextLabel")
     vl.Size = UDim2.new(1, -10, 0, 18)
     vl.Position = UDim2.new(0, 5, 0, 22)
@@ -1518,7 +1918,6 @@ for _, d in ipairs({
 end
 
 CreateSectionHeader(creditsPanel, "DEVELOPMENT TEAM", 3)
-
 local creditCard = Instance.new("Frame")
 creditCard.Size = UDim2.new(1, 0, 0, 54)
 creditCard.BackgroundColor3 = GetTheme().SurfaceHover
@@ -1587,7 +1986,7 @@ RegisterThemed(verFrame, {BackgroundColor3 = "SurfaceHover"})
 local verText = Instance.new("TextLabel")
 verText.Size = UDim2.new(1, 0, 1, 0)
 verText.BackgroundTransparency = 1
-verText.Text = "UNIVERSAL v2 v2.6.0 • Fixed Edition • Built with ❤️"
+verText.Text = "UNIVERSAL v2 v2.7.0 • Mount Obby Fixed • Built with ❤️"
 verText.TextColor3 = GetTheme().TextSecondary
 verText.TextSize = 10
 verText.Font = Enum.Font.Gotham
@@ -1595,13 +1994,12 @@ verText.Parent = verFrame
 RegisterThemed(verText, {TextColor3 = "TextSecondary"})
 
 -- ═══════════════════════════════════════════════════════════════
--- PANEL 6: THEMES — [FIX] Live theme switching
+-- PANEL 6: THEMES
 -- ═══════════════════════════════════════════════════════════════
 local themesPanel = CreatePanel("themes", false)
-CreateSectionHeader(themesPanel, "SELECT THEME (Live Switch ✨)", 1)
+CreateSectionHeader(themesPanel, "SELECT THEME (Live Switch)", 1)
 
 local themeLabels = {}
-
 for i, theme in ipairs(Themes) do
     local tBtn = Instance.new("TextButton")
     tBtn.Size = UDim2.new(1, 0, 0, 50)
@@ -1663,7 +2061,6 @@ for i, theme in ipairs(Themes) do
                 data.Stroke.Color = Themes[idx].Border
             end
         end
-        -- [FIX] Live apply theme to all elements
         ApplyThemeToAll()
         Notify("🎨 Theme", "Switched to " .. theme.Name)
     end)
@@ -1689,7 +2086,6 @@ for i, kb in ipairs({{"Toggle GUI", "Right Shift"}, {"Toggle Fly", "F"}, {"Toggl
     CreateCorner(row, 8)
     CreateStroke(row, GetTheme().Border, 1)
     RegisterThemed(row, {BackgroundColor3 = "SurfaceHover"})
-
     local al = Instance.new("TextLabel")
     al.Size = UDim2.new(0.6, -10, 1, 0)
     al.Position = UDim2.new(0, 16, 0, 0)
@@ -1701,7 +2097,6 @@ for i, kb in ipairs({{"Toggle GUI", "Right Shift"}, {"Toggle Fly", "F"}, {"Toggl
     al.TextXAlignment = Enum.TextXAlignment.Left
     al.Parent = row
     RegisterThemed(al, {TextColor3 = "Text"})
-
     local kl = Instance.new("TextLabel")
     kl.Size = UDim2.new(0, 85, 0, 26)
     kl.Position = UDim2.new(1, -100, 0.5, 0)
@@ -1724,7 +2119,6 @@ if NavButtons["features"] then
     Tween(NavButtons["features"].Indicator, {BackgroundTransparency = 0}, 0.01)
 end
 
--- Update top bar title
 spawn(function()
     local titles = {
         features = "⚡ FEATURES", server = "🖥️ SERVER INFO",
@@ -1747,7 +2141,6 @@ local function StartFly()
     local root = GetRootPart()
     local hum = GetHumanoid()
     if not root or not hum then return end
-    -- [FIX] Clean existing first
     if flyBV then pcall(function() flyBV:Destroy() end) end
     if flyBG then pcall(function() flyBG:Destroy() end) end
     flyBV = Instance.new("BodyVelocity")
@@ -1828,7 +2221,7 @@ spawn(function()
     end
 end)
 
--- ESP (with proper cleanup)
+-- ESP
 local espFolder = Instance.new("Folder")
 espFolder.Name = "ExterESP"
 espFolder.Parent = game:GetService("CoreGui")
@@ -1864,11 +2257,6 @@ spawn(function()
         if State.ESPEnabled and not was then
             for _, p in ipairs(Players:GetPlayers()) do CreateESP(p) end
             espAddConn = Players.PlayerAdded:Connect(function(p) if State.ESPEnabled then CreateESP(p) end end)
-            Players.PlayerRemoving:Connect(function(p)
-                local e = espFolder:FindFirstChild("ESP_" .. p.Name)
-                if e then e:Destroy() end
-                if espConns[p.Name] then pcall(function() espConns[p.Name]:Disconnect() end); espConns[p.Name] = nil end
-            end)
             was = true
         elseif not State.ESPEnabled and was then
             ClearESP()
@@ -1921,10 +2309,8 @@ UserInputService.InputBegan:Connect(function(input, gpe)
             wait(0.2)
             MainFrame.Visible = false
         end
-    -- [FIX] F key toggles fly
     elseif input.KeyCode == Enum.KeyCode.F then
         State.FlyEnabled = not State.FlyEnabled
-    -- [FIX] N key toggles noclip
     elseif input.KeyCode == Enum.KeyCode.N then
         State.NoclipEnabled = not State.NoclipEnabled
     end
@@ -1936,20 +2322,16 @@ MainFrame.Visible = true
 wait(0.1)
 Tween(MainFrame, {Size = UDim2.new(0, 780, 0, 500)}, 0.5, Enum.EasingStyle.Back)
 
--- [FIX] PING & FPS UPDATER — actually updates the display
+-- PING & FPS UPDATER
 spawn(function()
     while MainFrame and MainFrame.Parent do
         pcall(function()
             local ping = math.floor(game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue())
-            if serverInfoCards["Ping"] then
-                serverInfoCards["Ping"].Text = tostring(ping) .. "ms"
-            end
+            if serverInfoCards["Ping"] then serverInfoCards["Ping"].Text = tostring(ping) .. "ms" end
         end)
         pcall(function()
             local fps = math.floor(1 / RunService.RenderStepped:Wait())
-            if serverInfoCards["FPS"] then
-                serverInfoCards["FPS"].Text = tostring(fps)
-            end
+            if serverInfoCards["FPS"] then serverInfoCards["FPS"].Text = tostring(fps) end
         end)
         pcall(function()
             if serverInfoCards["Players"] then
@@ -1960,5 +2342,4 @@ spawn(function()
     end
 end)
 
--- NOTIFICATION
-Notify("🎮 UNIVERSAL v2 v2.6.0", "Script loaded! Press Right Shift to toggle GUI.")
+Notify("🏔️ UNIVERSAL v2 v2.7.0", "Mount Obby Fixed! Press RShift to toggle.")
