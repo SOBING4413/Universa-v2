@@ -1,6 +1,4 @@
--- ═══════════════════════════════════════════════════════════════
 -- SERVICES
--- ═══════════════════════════════════════════════════════════════
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -14,31 +12,27 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 local Mouse = LocalPlayer:GetMouse()
 
--- ═══════════════════════════════════════════════════════════════
--- CONFIGURATION & STATE
--- ═══════════════════════════════════════════════════════════════
+-- STATE
 local State = {
     GuiVisible = true,
     ActivePanel = "features",
-    -- Features
     FlyEnabled = false,
     InfiniteJumpEnabled = false,
     GodModeEnabled = false,
     ESPEnabled = false,
     InvisibleEnabled = false,
     NoclipEnabled = false,
-    -- Values
     PlayerSpeed = 16,
     WalkSpeed = 16,
     JumpPower = 50,
     FlySpeed = 50,
-    -- Theme
     CurrentTheme = 1,
 }
 
--- ═══════════════════════════════════════════════════════════════
+-- Track themed elements for LIVE theme switching
+local ThemedElements = {}
+
 -- THEMES
--- ═══════════════════════════════════════════════════════════════
 local Themes = {
     {
         Name = "Cyberpunk Neon",
@@ -111,9 +105,7 @@ local function GetTheme()
     return Themes[State.CurrentTheme]
 end
 
--- ═══════════════════════════════════════════════════════════════
--- UTILITY FUNCTIONS
--- ═══════════════════════════════════════════════════════════════
+-- UTILITIES
 local function Tween(obj, props, duration, style, direction)
     local tweenInfo = TweenInfo.new(
         duration or 0.3,
@@ -132,7 +124,15 @@ local function CreateCorner(parent, radius)
     return corner
 end
 
+-- [FIX] CreateStroke: reuse existing UIStroke to prevent duplicates
 local function CreateStroke(parent, color, thickness, transparency)
+    local existing = parent:FindFirstChildOfClass("UIStroke")
+    if existing then
+        existing.Color = color or GetTheme().Border
+        existing.Thickness = thickness or 1
+        existing.Transparency = transparency or 0
+        return existing
+    end
     local stroke = Instance.new("UIStroke")
     stroke.Color = color or GetTheme().Border
     stroke.Thickness = thickness or 1
@@ -142,6 +142,14 @@ local function CreateStroke(parent, color, thickness, transparency)
 end
 
 local function CreatePadding(parent, top, right, bottom, left)
+    local existing = parent:FindFirstChildOfClass("UIPadding")
+    if existing then
+        existing.PaddingTop = UDim.new(0, top or 8)
+        existing.PaddingRight = UDim.new(0, right or 8)
+        existing.PaddingBottom = UDim.new(0, bottom or 8)
+        existing.PaddingLeft = UDim.new(0, left or 8)
+        return existing
+    end
     local padding = Instance.new("UIPadding")
     padding.PaddingTop = UDim.new(0, top or 8)
     padding.PaddingRight = UDim.new(0, right or 8)
@@ -149,22 +157,6 @@ local function CreatePadding(parent, top, right, bottom, left)
     padding.PaddingLeft = UDim.new(0, left or 8)
     padding.Parent = parent
     return padding
-end
-
-local function CreateGlow(parent, color, size)
-    -- Simulated glow using ImageLabel with gradient
-    local glow = Instance.new("Frame")
-    glow.Name = "Glow"
-    glow.Size = UDim2.new(1, size or 20, 1, size or 20)
-    glow.Position = UDim2.new(0.5, 0, 0.5, 0)
-    glow.AnchorPoint = Vector2.new(0.5, 0.5)
-    glow.BackgroundColor3 = color or GetTheme().Primary
-    glow.BackgroundTransparency = 0.85
-    glow.BorderSizePixel = 0
-    glow.ZIndex = parent.ZIndex - 1
-    CreateCorner(glow, 12)
-    glow.Parent = parent
-    return glow
 end
 
 local function GetCharacter()
@@ -181,45 +173,76 @@ local function GetRootPart()
     return char and char:FindFirstChild("HumanoidRootPart")
 end
 
--- ═══════════════════════════════════════════════════════════════
--- DESTROY EXISTING GUI
--- ═══════════════════════════════════════════════════════════════
-if game:GetService("CoreGui"):FindFirstChild("ExterFW") then
-    game:GetService("CoreGui"):FindFirstChild("ExterFW"):Destroy()
+local function Notify(title, text, duration)
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = title or "UNIVERSAL v2",
+            Text = text or "",
+            Duration = duration or 3,
+        })
+    end)
 end
 
--- ═══════════════════════════════════════════════════════════════
+-- Register element for live theme switching
+local function RegisterThemed(obj, propMap)
+    table.insert(ThemedElements, {Object = obj, Properties = propMap})
+end
+
+-- [FIX] Apply theme to ALL registered elements (live switching)
+local function ApplyThemeToAll()
+    local theme = GetTheme()
+    for _, entry in ipairs(ThemedElements) do
+        if entry.Object and entry.Object.Parent then
+            for prop, themeKey in pairs(entry.Properties) do
+                pcall(function()
+                    local targetColor = theme[themeKey]
+                    if targetColor then
+                        Tween(entry.Object, {[prop] = targetColor}, 0.4)
+                    end
+                end)
+            end
+        end
+    end
+end
+
+-- DESTROY EXISTING GUI
+pcall(function()
+    if game:GetService("CoreGui"):FindFirstChild("UniversalV2") then
+        game:GetService("CoreGui"):FindFirstChild("UniversalV2"):Destroy()
+    end
+    if game:GetService("CoreGui"):FindFirstChild("ExterESP") then
+        game:GetService("CoreGui"):FindFirstChild("ExterESP"):Destroy()
+    end
+end)
+
 -- CREATE MAIN GUI
--- ═══════════════════════════════════════════════════════════════
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "ExterFW"
+ScreenGui.Name = "UniversalV2"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.IgnoreGuiInset = true
 
-pcall(function()
-    ScreenGui.Parent = game:GetService("CoreGui")
-end)
+pcall(function() ScreenGui.Parent = game:GetService("CoreGui") end)
 if not ScreenGui.Parent then
     ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 end
 
--- ═══════════════════════════════════════════════════════════════
--- MAIN FRAME (Landscape Layout)
--- ═══════════════════════════════════════════════════════════════
+-- MAIN FRAME
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 750, 0, 480)
+MainFrame.Size = UDim2.new(0, 780, 0, 500)
 MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
 MainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
 MainFrame.BackgroundColor3 = GetTheme().Background
 MainFrame.BorderSizePixel = 0
 MainFrame.ClipsDescendants = true
 MainFrame.Parent = ScreenGui
-CreateCorner(MainFrame, 12)
-CreateStroke(MainFrame, GetTheme().Border, 1)
+CreateCorner(MainFrame, 14)
+local mainStroke = CreateStroke(MainFrame, GetTheme().Primary, 1, 0.5)
+RegisterThemed(MainFrame, {BackgroundColor3 = "Background"})
+RegisterThemed(mainStroke, {Color = "Primary"})
 
--- Make draggable
+-- Draggable
 local dragging, dragInput, dragStart, startPos
 MainFrame.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -227,9 +250,7 @@ MainFrame.InputBegan:Connect(function(input)
         dragStart = input.Position
         startPos = MainFrame.Position
         input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
+            if input.UserInputState == Enum.UserInputState.End then dragging = false end
         end)
     end
 end)
@@ -245,20 +266,18 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
--- ═══════════════════════════════════════════════════════════════
--- SCAN LINE EFFECT (Overlay)
--- ═══════════════════════════════════════════════════════════════
+-- Scan line
 local ScanLine = Instance.new("Frame")
 ScanLine.Name = "ScanLine"
 ScanLine.Size = UDim2.new(1, 0, 0, 2)
 ScanLine.Position = UDim2.new(0, 0, 0, 0)
 ScanLine.BackgroundColor3 = GetTheme().Primary
-ScanLine.BackgroundTransparency = 0.9
+ScanLine.BackgroundTransparency = 0.85
 ScanLine.BorderSizePixel = 0
 ScanLine.ZIndex = 100
 ScanLine.Parent = MainFrame
+RegisterThemed(ScanLine, {BackgroundColor3 = "Primary"})
 
--- Animate scan line
 spawn(function()
     while MainFrame and MainFrame.Parent do
         Tween(ScanLine, {Position = UDim2.new(0, 0, 1, 0)}, 3, Enum.EasingStyle.Linear)
@@ -267,76 +286,87 @@ spawn(function()
     end
 end)
 
--- ═══════════════════════════════════════════════════════════════
 -- SIDEBAR
--- ═══════════════════════════════════════════════════════════════
 local Sidebar = Instance.new("Frame")
 Sidebar.Name = "Sidebar"
-Sidebar.Size = UDim2.new(0, 180, 1, 0)
-Sidebar.Position = UDim2.new(0, 0, 0, 0)
+Sidebar.Size = UDim2.new(0, 190, 1, 0)
 Sidebar.BackgroundColor3 = GetTheme().Surface
 Sidebar.BorderSizePixel = 0
 Sidebar.Parent = MainFrame
+RegisterThemed(Sidebar, {BackgroundColor3 = "Surface"})
 
 local SidebarBorder = Instance.new("Frame")
-SidebarBorder.Name = "Border"
 SidebarBorder.Size = UDim2.new(0, 1, 1, 0)
 SidebarBorder.Position = UDim2.new(1, 0, 0, 0)
 SidebarBorder.BackgroundColor3 = GetTheme().Border
 SidebarBorder.BorderSizePixel = 0
 SidebarBorder.Parent = Sidebar
+RegisterThemed(SidebarBorder, {BackgroundColor3 = "Border"})
 
--- Logo Section
+-- Logo
 local LogoFrame = Instance.new("Frame")
-LogoFrame.Name = "LogoFrame"
-LogoFrame.Size = UDim2.new(1, 0, 0, 50)
+LogoFrame.Size = UDim2.new(1, 0, 0, 60)
 LogoFrame.BackgroundTransparency = 1
 LogoFrame.Parent = Sidebar
 
 local LogoBadge = Instance.new("Frame")
-LogoBadge.Name = "Badge"
-LogoBadge.Size = UDim2.new(0, 30, 0, 30)
-LogoBadge.Position = UDim2.new(0, 12, 0.5, 0)
+LogoBadge.Size = UDim2.new(0, 34, 0, 34)
+LogoBadge.Position = UDim2.new(0, 14, 0.5, 0)
 LogoBadge.AnchorPoint = Vector2.new(0, 0.5)
 LogoBadge.BackgroundColor3 = GetTheme().Primary
 LogoBadge.BorderSizePixel = 0
 LogoBadge.Parent = LogoFrame
-CreateCorner(LogoBadge, 6)
+CreateCorner(LogoBadge, 8)
+RegisterThemed(LogoBadge, {BackgroundColor3 = "Primary"})
 
 local LogoBadgeText = Instance.new("TextLabel")
 LogoBadgeText.Size = UDim2.new(1, 0, 1, 0)
 LogoBadgeText.BackgroundTransparency = 1
-LogoBadgeText.Text = "NX"
+LogoBadgeText.Text = "U2"
 LogoBadgeText.TextColor3 = GetTheme().Background
-LogoBadgeText.TextSize = 11
+LogoBadgeText.TextSize = 12
 LogoBadgeText.Font = Enum.Font.GothamBold
 LogoBadgeText.Parent = LogoBadge
+RegisterThemed(LogoBadgeText, {TextColor3 = "Background"})
 
 local LogoTitle = Instance.new("TextLabel")
-LogoTitle.Name = "Title"
-LogoTitle.Size = UDim2.new(1, -55, 1, 0)
-LogoTitle.Position = UDim2.new(0, 50, 0, 0)
+LogoTitle.Size = UDim2.new(1, -60, 0, 20)
+LogoTitle.Position = UDim2.new(0, 56, 0, 14)
 LogoTitle.BackgroundTransparency = 1
 LogoTitle.Text = "UNIVERSAL v2"
 LogoTitle.TextColor3 = GetTheme().Primary
-LogoTitle.TextSize = 14
+LogoTitle.TextSize = 15
 LogoTitle.Font = Enum.Font.GothamBold
 LogoTitle.TextXAlignment = Enum.TextXAlignment.Left
 LogoTitle.Parent = LogoFrame
+RegisterThemed(LogoTitle, {TextColor3 = "Primary"})
+
+local LogoSub = Instance.new("TextLabel")
+LogoSub.Size = UDim2.new(1, -60, 0, 14)
+LogoSub.Position = UDim2.new(0, 56, 0, 34)
+LogoSub.BackgroundTransparency = 1
+LogoSub.Text = "v2.6.0 — Fixed Edition"
+LogoSub.TextColor3 = GetTheme().TextSecondary
+LogoSub.TextSize = 9
+LogoSub.Font = Enum.Font.Gotham
+LogoSub.TextXAlignment = Enum.TextXAlignment.Left
+LogoSub.Parent = LogoFrame
+RegisterThemed(LogoSub, {TextColor3 = "TextSecondary"})
 
 local LogoDivider = Instance.new("Frame")
-LogoDivider.Size = UDim2.new(1, -20, 0, 1)
-LogoDivider.Position = UDim2.new(0, 10, 1, 0)
+LogoDivider.Size = UDim2.new(1, -24, 0, 1)
+LogoDivider.Position = UDim2.new(0, 12, 1, -1)
 LogoDivider.BackgroundColor3 = GetTheme().Border
 LogoDivider.BorderSizePixel = 0
 LogoDivider.Parent = LogoFrame
+RegisterThemed(LogoDivider, {BackgroundColor3 = "Border"})
 
--- Navigation Buttons
+-- Navigation
 local NavItems = {
     {id = "features", label = "⚡ Features"},
-    {id = "server", label = "🖥️ Server Info"},
+    {id = "server", label = "🖥️ Server"},
     {id = "utilities", label = "🔧 Utilities"},
-    {id = "analyzer", label = "📜 Script Analyzer"},
+    {id = "analyzer", label = "📜 Analyzer"},
     {id = "credits", label = "❤️ Credits"},
     {id = "themes", label = "🎨 Themes"},
     {id = "settings", label = "⚙️ Settings"},
@@ -346,23 +376,22 @@ local NavButtons = {}
 local ContentPanels = {}
 
 local NavContainer = Instance.new("Frame")
-NavContainer.Name = "NavContainer"
-NavContainer.Size = UDim2.new(1, 0, 1, -55)
-NavContainer.Position = UDim2.new(0, 0, 0, 55)
+NavContainer.Size = UDim2.new(1, 0, 1, -65)
+NavContainer.Position = UDim2.new(0, 0, 0, 65)
 NavContainer.BackgroundTransparency = 1
 NavContainer.Parent = Sidebar
 
 local NavLayout = Instance.new("UIListLayout")
 NavLayout.SortOrder = Enum.SortOrder.LayoutOrder
-NavLayout.Padding = UDim.new(0, 2)
+NavLayout.Padding = UDim.new(0, 3)
 NavLayout.Parent = NavContainer
-CreatePadding(NavContainer, 4, 8, 4, 8)
+CreatePadding(NavContainer, 4, 10, 4, 10)
 
 for i, item in ipairs(NavItems) do
     local btn = Instance.new("TextButton")
     btn.Name = "Nav_" .. item.id
-    btn.Size = UDim2.new(1, 0, 0, 36)
-    btn.BackgroundColor3 = GetTheme().Surface
+    btn.Size = UDim2.new(1, 0, 0, 38)
+    btn.BackgroundColor3 = GetTheme().SurfaceHover
     btn.BackgroundTransparency = 1
     btn.BorderSizePixel = 0
     btn.Text = item.label
@@ -372,14 +401,13 @@ for i, item in ipairs(NavItems) do
     btn.TextXAlignment = Enum.TextXAlignment.Left
     btn.LayoutOrder = i
     btn.Parent = NavContainer
-    CreateCorner(btn, 8)
-    CreatePadding(btn, 0, 10, 0, 10)
+    CreateCorner(btn, 10)
+    CreatePadding(btn, 0, 12, 0, 12)
 
-    -- Active indicator
     local indicator = Instance.new("Frame")
     indicator.Name = "Indicator"
-    indicator.Size = UDim2.new(0, 3, 0.6, 0)
-    indicator.Position = UDim2.new(0, 0, 0.2, 0)
+    indicator.Size = UDim2.new(0, 3, 0.5, 0)
+    indicator.Position = UDim2.new(0, -1, 0.25, 0)
     indicator.BackgroundColor3 = GetTheme().Primary
     indicator.BackgroundTransparency = 1
     indicator.BorderSizePixel = 0
@@ -390,17 +418,15 @@ for i, item in ipairs(NavItems) do
 
     btn.MouseButton1Click:Connect(function()
         State.ActivePanel = item.id
-        -- Update nav visuals
         for id, nav in pairs(NavButtons) do
             if id == item.id then
-                Tween(nav.Button, {BackgroundTransparency = 0.85, TextColor3 = GetTheme().Primary}, 0.2)
-                Tween(nav.Indicator, {BackgroundTransparency = 0}, 0.2)
+                Tween(nav.Button, {BackgroundTransparency = 0.8, TextColor3 = GetTheme().Primary}, 0.25)
+                Tween(nav.Indicator, {BackgroundTransparency = 0}, 0.25)
             else
-                Tween(nav.Button, {BackgroundTransparency = 1, TextColor3 = GetTheme().TextSecondary}, 0.2)
-                Tween(nav.Indicator, {BackgroundTransparency = 1}, 0.2)
+                Tween(nav.Button, {BackgroundTransparency = 1, TextColor3 = GetTheme().TextSecondary}, 0.25)
+                Tween(nav.Indicator, {BackgroundTransparency = 1}, 0.25)
             end
         end
-        -- Show/hide panels
         for id, panel in pairs(ContentPanels) do
             panel.Visible = (id == item.id)
         end
@@ -418,13 +444,11 @@ for i, item in ipairs(NavItems) do
     end)
 end
 
--- ═══════════════════════════════════════════════════════════════
 -- CONTENT AREA
--- ═══════════════════════════════════════════════════════════════
 local ContentArea = Instance.new("ScrollingFrame")
 ContentArea.Name = "ContentArea"
-ContentArea.Size = UDim2.new(1, -182, 1, -40)
-ContentArea.Position = UDim2.new(0, 182, 0, 40)
+ContentArea.Size = UDim2.new(1, -192, 1, -44)
+ContentArea.Position = UDim2.new(0, 192, 0, 44)
 ContentArea.BackgroundTransparency = 1
 ContentArea.BorderSizePixel = 0
 ContentArea.ScrollBarThickness = 4
@@ -432,17 +456,18 @@ ContentArea.ScrollBarImageColor3 = GetTheme().Primary
 ContentArea.CanvasSize = UDim2.new(0, 0, 0, 0)
 ContentArea.AutomaticCanvasSize = Enum.AutomaticSize.Y
 ContentArea.Parent = MainFrame
+RegisterThemed(ContentArea, {ScrollBarImageColor3 = "Primary"})
 
 -- Top Bar
 local TopBar = Instance.new("Frame")
-TopBar.Name = "TopBar"
-TopBar.Size = UDim2.new(1, -182, 0, 40)
-TopBar.Position = UDim2.new(0, 182, 0, 0)
+TopBar.Size = UDim2.new(1, -192, 0, 44)
+TopBar.Position = UDim2.new(0, 192, 0, 0)
 TopBar.BackgroundColor3 = GetTheme().Surface
-TopBar.BackgroundTransparency = 0.2
+TopBar.BackgroundTransparency = 0.1
 TopBar.BorderSizePixel = 0
 TopBar.ZIndex = 10
 TopBar.Parent = MainFrame
+RegisterThemed(TopBar, {BackgroundColor3 = "Surface"})
 
 local TopBarDivider = Instance.new("Frame")
 TopBarDivider.Size = UDim2.new(1, 0, 0, 1)
@@ -450,22 +475,23 @@ TopBarDivider.Position = UDim2.new(0, 0, 1, 0)
 TopBarDivider.BackgroundColor3 = GetTheme().Border
 TopBarDivider.BorderSizePixel = 0
 TopBarDivider.Parent = TopBar
+RegisterThemed(TopBarDivider, {BackgroundColor3 = "Border"})
 
 local TopBarTitle = Instance.new("TextLabel")
-TopBarTitle.Name = "PanelTitle"
 TopBarTitle.Size = UDim2.new(0.5, 0, 1, 0)
-TopBarTitle.Position = UDim2.new(0, 15, 0, 0)
+TopBarTitle.Position = UDim2.new(0, 18, 0, 0)
 TopBarTitle.BackgroundTransparency = 1
 TopBarTitle.Text = "⚡ FEATURES"
 TopBarTitle.TextColor3 = GetTheme().Text
-TopBarTitle.TextSize = 12
+TopBarTitle.TextSize = 13
 TopBarTitle.Font = Enum.Font.GothamBold
 TopBarTitle.TextXAlignment = Enum.TextXAlignment.Left
 TopBarTitle.Parent = TopBar
+RegisterThemed(TopBarTitle, {TextColor3 = "Text"})
 
 local StatusDot = Instance.new("Frame")
 StatusDot.Size = UDim2.new(0, 8, 0, 8)
-StatusDot.Position = UDim2.new(1, -80, 0.5, 0)
+StatusDot.Position = UDim2.new(1, -90, 0.5, 0)
 StatusDot.AnchorPoint = Vector2.new(0, 0.5)
 StatusDot.BackgroundColor3 = Color3.fromHex("#00ff88")
 StatusDot.BorderSizePixel = 0
@@ -473,19 +499,17 @@ StatusDot.Parent = TopBar
 CreateCorner(StatusDot, 4)
 
 local StatusText = Instance.new("TextLabel")
-StatusText.Size = UDim2.new(0, 60, 1, 0)
-StatusText.Position = UDim2.new(1, -65, 0, 0)
+StatusText.Size = UDim2.new(0, 70, 1, 0)
+StatusText.Position = UDim2.new(1, -78, 0, 0)
 StatusText.BackgroundTransparency = 1
 StatusText.Text = "Connected"
-StatusText.TextColor3 = GetTheme().TextSecondary
+StatusText.TextColor3 = Color3.fromHex("#00ff88")
 StatusText.TextSize = 10
-StatusText.Font = Enum.Font.Gotham
+StatusText.Font = Enum.Font.GothamBold
 StatusText.TextXAlignment = Enum.TextXAlignment.Left
 StatusText.Parent = TopBar
 
--- ═══════════════════════════════════════════════════════════════
--- HELPER: Create Panel Container
--- ═══════════════════════════════════════════════════════════════
+-- PANEL HELPERS
 local function CreatePanel(name, visible)
     local panel = Instance.new("Frame")
     panel.Name = name
@@ -494,47 +518,63 @@ local function CreatePanel(name, visible)
     panel.BackgroundTransparency = 1
     panel.Visible = visible or false
     panel.Parent = ContentArea
-    
+
     local layout = Instance.new("UIListLayout")
     layout.SortOrder = Enum.SortOrder.LayoutOrder
     layout.Padding = UDim.new(0, 8)
     layout.Parent = panel
-    CreatePadding(panel, 12, 15, 12, 15)
-    
+    CreatePadding(panel, 14, 18, 14, 18)
+
     ContentPanels[name] = panel
     return panel
 end
 
--- Helper: Section Header
 local function CreateSectionHeader(parent, text, order)
+    local container = Instance.new("Frame")
+    container.Size = UDim2.new(1, 0, 0, 28)
+    container.BackgroundTransparency = 1
+    container.LayoutOrder = order or 0
+    container.Parent = parent
+
+    local line = Instance.new("Frame")
+    line.Size = UDim2.new(0, 3, 0, 16)
+    line.Position = UDim2.new(0, 0, 0.5, 0)
+    line.AnchorPoint = Vector2.new(0, 0.5)
+    line.BackgroundColor3 = GetTheme().Primary
+    line.BorderSizePixel = 0
+    line.Parent = container
+    CreateCorner(line, 2)
+    RegisterThemed(line, {BackgroundColor3 = "Primary"})
+
     local header = Instance.new("TextLabel")
-    header.Size = UDim2.new(1, 0, 0, 24)
+    header.Size = UDim2.new(1, -12, 1, 0)
+    header.Position = UDim2.new(0, 12, 0, 0)
     header.BackgroundTransparency = 1
     header.Text = text
     header.TextColor3 = GetTheme().Primary
-    header.TextSize = 14
+    header.TextSize = 13
     header.Font = Enum.Font.GothamBold
     header.TextXAlignment = Enum.TextXAlignment.Left
-    header.LayoutOrder = order or 0
-    header.Parent = parent
-    return header
+    header.Parent = container
+    RegisterThemed(header, {TextColor3 = "Primary"})
+    return container
 end
 
--- Helper: Toggle Row
 local function CreateToggle(parent, label, description, order, callback)
     local row = Instance.new("Frame")
     row.Name = "Toggle_" .. label
-    row.Size = UDim2.new(1, 0, 0, 50)
+    row.Size = UDim2.new(1, 0, 0, 54)
     row.BackgroundColor3 = GetTheme().SurfaceHover
     row.BorderSizePixel = 0
     row.LayoutOrder = order or 0
     row.Parent = parent
     CreateCorner(row, 10)
-    CreateStroke(row, GetTheme().Border, 1)
+    local rowStroke = CreateStroke(row, GetTheme().Border, 1)
+    RegisterThemed(row, {BackgroundColor3 = "SurfaceHover"})
 
     local labelText = Instance.new("TextLabel")
-    labelText.Size = UDim2.new(0.6, -10, 0, 18)
-    labelText.Position = UDim2.new(0, 15, 0, 8)
+    labelText.Size = UDim2.new(0.65, -10, 0, 18)
+    labelText.Position = UDim2.new(0, 16, 0, 10)
     labelText.BackgroundTransparency = 1
     labelText.Text = label
     labelText.TextColor3 = GetTheme().Text
@@ -544,8 +584,8 @@ local function CreateToggle(parent, label, description, order, callback)
     labelText.Parent = row
 
     local descText = Instance.new("TextLabel")
-    descText.Size = UDim2.new(0.6, -10, 0, 14)
-    descText.Position = UDim2.new(0, 15, 0, 28)
+    descText.Size = UDim2.new(0.65, -10, 0, 14)
+    descText.Position = UDim2.new(0, 16, 0, 30)
     descText.BackgroundTransparency = 1
     descText.Text = description
     descText.TextColor3 = GetTheme().TextSecondary
@@ -553,27 +593,25 @@ local function CreateToggle(parent, label, description, order, callback)
     descText.Font = Enum.Font.Gotham
     descText.TextXAlignment = Enum.TextXAlignment.Left
     descText.Parent = row
+    RegisterThemed(descText, {TextColor3 = "TextSecondary"})
 
-    -- Toggle switch
     local toggleBg = Instance.new("Frame")
-    toggleBg.Name = "ToggleBg"
-    toggleBg.Size = UDim2.new(0, 44, 0, 22)
-    toggleBg.Position = UDim2.new(1, -60, 0.5, 0)
+    toggleBg.Size = UDim2.new(0, 48, 0, 24)
+    toggleBg.Position = UDim2.new(1, -64, 0.5, 0)
     toggleBg.AnchorPoint = Vector2.new(0, 0.5)
     toggleBg.BackgroundColor3 = GetTheme().Border
     toggleBg.BorderSizePixel = 0
     toggleBg.Parent = row
-    CreateCorner(toggleBg, 11)
+    CreateCorner(toggleBg, 12)
 
     local toggleKnob = Instance.new("Frame")
-    toggleKnob.Name = "Knob"
-    toggleKnob.Size = UDim2.new(0, 18, 0, 18)
+    toggleKnob.Size = UDim2.new(0, 20, 0, 20)
     toggleKnob.Position = UDim2.new(0, 2, 0.5, 0)
     toggleKnob.AnchorPoint = Vector2.new(0, 0.5)
     toggleKnob.BackgroundColor3 = GetTheme().TextSecondary
     toggleKnob.BorderSizePixel = 0
     toggleKnob.Parent = toggleBg
-    CreateCorner(toggleKnob, 9)
+    CreateCorner(toggleKnob, 10)
 
     local enabled = false
     local toggleBtn = Instance.new("TextButton")
@@ -585,15 +623,18 @@ local function CreateToggle(parent, label, description, order, callback)
     toggleBtn.MouseButton1Click:Connect(function()
         enabled = not enabled
         if enabled then
-            Tween(toggleBg, {BackgroundColor3 = GetTheme().Primary}, 0.2)
-            Tween(toggleKnob, {Position = UDim2.new(0, 24, 0.5, 0), BackgroundColor3 = GetTheme().Background}, 0.2)
-            Tween(labelText, {TextColor3 = GetTheme().Primary}, 0.2)
-            CreateStroke(row, GetTheme().Primary, 1, 0.6)
+            Tween(toggleBg, {BackgroundColor3 = GetTheme().Primary}, 0.25)
+            Tween(toggleKnob, {Position = UDim2.new(0, 26, 0.5, 0), BackgroundColor3 = Color3.new(1,1,1)}, 0.25)
+            Tween(labelText, {TextColor3 = GetTheme().Primary}, 0.25)
+            -- [FIX] Update existing stroke
+            rowStroke.Color = GetTheme().Primary
+            rowStroke.Transparency = 0.5
         else
-            Tween(toggleBg, {BackgroundColor3 = GetTheme().Border}, 0.2)
-            Tween(toggleKnob, {Position = UDim2.new(0, 2, 0.5, 0), BackgroundColor3 = GetTheme().TextSecondary}, 0.2)
-            Tween(labelText, {TextColor3 = GetTheme().Text}, 0.2)
-            CreateStroke(row, GetTheme().Border, 1)
+            Tween(toggleBg, {BackgroundColor3 = GetTheme().Border}, 0.25)
+            Tween(toggleKnob, {Position = UDim2.new(0, 2, 0.5, 0), BackgroundColor3 = GetTheme().TextSecondary}, 0.25)
+            Tween(labelText, {TextColor3 = GetTheme().Text}, 0.25)
+            rowStroke.Color = GetTheme().Border
+            rowStroke.Transparency = 0
         end
         if callback then callback(enabled) end
     end)
@@ -601,21 +642,20 @@ local function CreateToggle(parent, label, description, order, callback)
     return row, toggleBtn, enabled
 end
 
--- Helper: Slider
 local function CreateSlider(parent, label, min, max, default, order, callback)
     local container = Instance.new("Frame")
-    container.Name = "Slider_" .. label
-    container.Size = UDim2.new(1, 0, 0, 60)
+    container.Size = UDim2.new(1, 0, 0, 64)
     container.BackgroundColor3 = GetTheme().SurfaceHover
     container.BorderSizePixel = 0
     container.LayoutOrder = order or 0
     container.Parent = parent
     CreateCorner(container, 10)
     CreateStroke(container, GetTheme().Border, 1)
+    RegisterThemed(container, {BackgroundColor3 = "SurfaceHover"})
 
     local labelText = Instance.new("TextLabel")
     labelText.Size = UDim2.new(0.5, 0, 0, 20)
-    labelText.Position = UDim2.new(0, 15, 0, 6)
+    labelText.Position = UDim2.new(0, 16, 0, 8)
     labelText.BackgroundTransparency = 1
     labelText.Text = label
     labelText.TextColor3 = GetTheme().Text
@@ -623,98 +663,111 @@ local function CreateSlider(parent, label, min, max, default, order, callback)
     labelText.Font = Enum.Font.GothamBold
     labelText.TextXAlignment = Enum.TextXAlignment.Left
     labelText.Parent = container
+    RegisterThemed(labelText, {TextColor3 = "Text"})
 
     local valueLabel = Instance.new("TextLabel")
-    valueLabel.Name = "Value"
     valueLabel.Size = UDim2.new(0.3, 0, 0, 20)
-    valueLabel.Position = UDim2.new(0.7, -15, 0, 6)
+    valueLabel.Position = UDim2.new(0.7, -16, 0, 8)
     valueLabel.BackgroundTransparency = 1
     valueLabel.Text = tostring(default)
     valueLabel.TextColor3 = GetTheme().Primary
-    valueLabel.TextSize = 12
+    valueLabel.TextSize = 13
     valueLabel.Font = Enum.Font.GothamBold
     valueLabel.TextXAlignment = Enum.TextXAlignment.Right
     valueLabel.Parent = container
+    RegisterThemed(valueLabel, {TextColor3 = "Primary"})
 
-    -- Slider track
     local track = Instance.new("Frame")
-    track.Name = "Track"
-    track.Size = UDim2.new(1, -30, 0, 6)
-    track.Position = UDim2.new(0, 15, 0, 34)
+    track.Size = UDim2.new(1, -32, 0, 6)
+    track.Position = UDim2.new(0, 16, 0, 38)
     track.BackgroundColor3 = GetTheme().Border
     track.BorderSizePixel = 0
     track.Parent = container
     CreateCorner(track, 3)
+    RegisterThemed(track, {BackgroundColor3 = "Border"})
 
     local fill = Instance.new("Frame")
-    fill.Name = "Fill"
     fill.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
     fill.BackgroundColor3 = GetTheme().Primary
     fill.BorderSizePixel = 0
     fill.Parent = track
     CreateCorner(fill, 3)
+    RegisterThemed(fill, {BackgroundColor3 = "Primary"})
 
-    -- Min/Max labels
-    local minLabel = Instance.new("TextLabel")
-    minLabel.Size = UDim2.new(0.2, 0, 0, 14)
-    minLabel.Position = UDim2.new(0, 15, 0, 44)
-    minLabel.BackgroundTransparency = 1
-    minLabel.Text = tostring(min)
-    minLabel.TextColor3 = GetTheme().TextSecondary
-    minLabel.TextSize = 9
-    minLabel.Font = Enum.Font.Gotham
-    minLabel.TextXAlignment = Enum.TextXAlignment.Left
-    minLabel.Parent = container
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.new(0, 14, 0, 14)
+    knob.Position = UDim2.new((default - min) / (max - min), -7, 0.5, 0)
+    knob.AnchorPoint = Vector2.new(0, 0.5)
+    knob.BackgroundColor3 = GetTheme().Primary
+    knob.BorderSizePixel = 0
+    knob.ZIndex = 2
+    knob.Parent = track
+    CreateCorner(knob, 7)
+    RegisterThemed(knob, {BackgroundColor3 = "Primary"})
 
-    local maxLabel = Instance.new("TextLabel")
-    maxLabel.Size = UDim2.new(0.2, 0, 0, 14)
-    maxLabel.Position = UDim2.new(0.8, -15, 0, 44)
-    maxLabel.BackgroundTransparency = 1
-    maxLabel.Text = tostring(max)
-    maxLabel.TextColor3 = GetTheme().TextSecondary
-    maxLabel.TextSize = 9
-    maxLabel.Font = Enum.Font.Gotham
-    maxLabel.TextXAlignment = Enum.TextXAlignment.Right
-    maxLabel.Parent = container
+    local minL = Instance.new("TextLabel")
+    minL.Size = UDim2.new(0.2, 0, 0, 14)
+    minL.Position = UDim2.new(0, 16, 0, 48)
+    minL.BackgroundTransparency = 1
+    minL.Text = tostring(min)
+    minL.TextColor3 = GetTheme().TextSecondary
+    minL.TextSize = 9
+    minL.Font = Enum.Font.Gotham
+    minL.TextXAlignment = Enum.TextXAlignment.Left
+    minL.Parent = container
+    RegisterThemed(minL, {TextColor3 = "TextSecondary"})
 
-    -- Slider interaction
+    local maxL = Instance.new("TextLabel")
+    maxL.Size = UDim2.new(0.2, 0, 0, 14)
+    maxL.Position = UDim2.new(0.8, -16, 0, 48)
+    maxL.BackgroundTransparency = 1
+    maxL.Text = tostring(max)
+    maxL.TextColor3 = GetTheme().TextSecondary
+    maxL.TextSize = 9
+    maxL.Font = Enum.Font.Gotham
+    maxL.TextXAlignment = Enum.TextXAlignment.Right
+    maxL.Parent = container
+    RegisterThemed(maxL, {TextColor3 = "TextSecondary"})
+
     local sliderBtn = Instance.new("TextButton")
-    sliderBtn.Size = UDim2.new(1, -30, 0, 20)
-    sliderBtn.Position = UDim2.new(0, 15, 0, 28)
+    sliderBtn.Size = UDim2.new(1, -32, 0, 24)
+    sliderBtn.Position = UDim2.new(0, 16, 0, 30)
     sliderBtn.BackgroundTransparency = 1
     sliderBtn.Text = ""
     sliderBtn.Parent = container
 
     local sliding = false
-    sliderBtn.MouseButton1Down:Connect(function()
-        sliding = true
-    end)
+
+    local function UpdateSlider(inputX)
+        local tPos = track.AbsolutePosition.X
+        local tSize = track.AbsoluteSize.X
+        local pct = math.clamp((inputX - tPos) / tSize, 0, 1)
+        local value = math.floor(min + (max - min) * pct)
+        fill.Size = UDim2.new(pct, 0, 1, 0)
+        knob.Position = UDim2.new(pct, -7, 0.5, 0)
+        valueLabel.Text = tostring(value)
+        if callback then callback(value) end
+    end
+
+    sliderBtn.MouseButton1Down:Connect(function() sliding = true end)
+    -- [FIX] Touch support for sliders
     UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             sliding = false
         end
     end)
     UserInputService.InputChanged:Connect(function(input)
-        if sliding and input.UserInputType == Enum.UserInputType.MouseMovement then
-            local trackAbsPos = track.AbsolutePosition.X
-            local trackAbsSize = track.AbsoluteSize.X
-            local mouseX = input.Position.X
-            local percent = math.clamp((mouseX - trackAbsPos) / trackAbsSize, 0, 1)
-            local value = math.floor(min + (max - min) * percent)
-            fill.Size = UDim2.new(percent, 0, 1, 0)
-            valueLabel.Text = tostring(value)
-            if callback then callback(value) end
+        if sliding and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            UpdateSlider(input.Position.X)
         end
     end)
 
     return container
 end
 
--- Helper: Action Button
 local function CreateActionButton(parent, label, color, order, callback)
     local btn = Instance.new("TextButton")
-    btn.Name = "Action_" .. label
-    btn.Size = UDim2.new(0.48, 0, 0, 40)
+    btn.Size = UDim2.new(0.48, 0, 0, 42)
     btn.BackgroundColor3 = color or GetTheme().SurfaceHover
     btn.BackgroundTransparency = 0.85
     btn.BorderSizePixel = 0
@@ -725,15 +778,14 @@ local function CreateActionButton(parent, label, color, order, callback)
     btn.LayoutOrder = order or 0
     btn.Parent = parent
     CreateCorner(btn, 10)
-    CreateStroke(btn, color or GetTheme().Primary, 1, 0.7)
+    CreateStroke(btn, color or GetTheme().Primary, 1, 0.6)
 
-    btn.MouseEnter:Connect(function()
-        Tween(btn, {BackgroundTransparency = 0.7}, 0.15)
-    end)
-    btn.MouseLeave:Connect(function()
-        Tween(btn, {BackgroundTransparency = 0.85}, 0.15)
-    end)
+    btn.MouseEnter:Connect(function() Tween(btn, {BackgroundTransparency = 0.65}, 0.15) end)
+    btn.MouseLeave:Connect(function() Tween(btn, {BackgroundTransparency = 0.85}, 0.15) end)
     btn.MouseButton1Click:Connect(function()
+        Tween(btn, {BackgroundTransparency = 0.4}, 0.1)
+        wait(0.1)
+        Tween(btn, {BackgroundTransparency = 0.85}, 0.15)
         if callback then callback() end
     end)
     return btn
@@ -743,183 +795,453 @@ end
 -- PANEL 1: FEATURES
 -- ═══════════════════════════════════════════════════════════════
 local featuresPanel = CreatePanel("features", true)
-
 CreateSectionHeader(featuresPanel, "GAME MODIFICATIONS", 1)
-
-CreateToggle(featuresPanel, "FLY", "Fly freely in the game world", 2, function(enabled)
-    State.FlyEnabled = enabled
-end)
-
-CreateToggle(featuresPanel, "INFINITE JUMP", "Jump unlimited times in air", 3, function(enabled)
-    State.InfiniteJumpEnabled = enabled
-end)
-
-CreateToggle(featuresPanel, "GOD MODE", "Become invincible to damage", 4, function(enabled)
-    State.GodModeEnabled = enabled
-end)
-
-CreateToggle(featuresPanel, "ESP / WALLHACK", "See players through walls", 5, function(enabled)
-    State.ESPEnabled = enabled
-end)
-
-CreateToggle(featuresPanel, "INVISIBLE", "Become invisible to others", 6, function(enabled)
-    State.InvisibleEnabled = enabled
-end)
-
+CreateToggle(featuresPanel, "FLY", "Fly freely (Press F to toggle)", 2, function(e) State.FlyEnabled = e end)
+CreateToggle(featuresPanel, "INFINITE JUMP", "Jump unlimited times in air", 3, function(e) State.InfiniteJumpEnabled = e end)
+CreateToggle(featuresPanel, "GOD MODE", "Become invincible to damage", 4, function(e) State.GodModeEnabled = e end)
+CreateToggle(featuresPanel, "ESP / WALLHACK", "See players through walls", 5, function(e) State.ESPEnabled = e end)
+CreateToggle(featuresPanel, "INVISIBLE", "Become invisible to others", 6, function(e) State.InvisibleEnabled = e end)
 CreateSectionHeader(featuresPanel, "PARAMETERS", 7)
-
-CreateSlider(featuresPanel, "PLAYER SPEED", 1, 500, 16, 8, function(value)
-    State.PlayerSpeed = value
-    local hum = GetHumanoid()
-    if hum then hum.WalkSpeed = value end
+CreateSlider(featuresPanel, "PLAYER SPEED", 1, 500, 16, 8, function(v)
+    State.PlayerSpeed = v
+    local h = GetHumanoid(); if h then h.WalkSpeed = v end
 end)
-
-CreateSlider(featuresPanel, "FLY SPEED", 1, 500, 50, 9, function(value)
-    State.FlySpeed = value
-end)
+CreateSlider(featuresPanel, "FLY SPEED", 1, 500, 50, 9, function(v) State.FlySpeed = v end)
 
 -- ═══════════════════════════════════════════════════════════════
 -- PANEL 2: SERVER INFO
 -- ═══════════════════════════════════════════════════════════════
 local serverPanel = CreatePanel("server", false)
-
 CreateSectionHeader(serverPanel, "SERVER DETAILS", 1)
 
--- Server info cards
 local serverInfoFrame = Instance.new("Frame")
-serverInfoFrame.Name = "ServerInfo"
 serverInfoFrame.Size = UDim2.new(1, 0, 0, 0)
 serverInfoFrame.AutomaticSize = Enum.AutomaticSize.Y
 serverInfoFrame.BackgroundTransparency = 1
 serverInfoFrame.LayoutOrder = 2
 serverInfoFrame.Parent = serverPanel
 
-local serverInfoLayout = Instance.new("UIGridLayout")
-serverInfoLayout.CellSize = UDim2.new(0.32, 0, 0, 55)
-serverInfoLayout.CellPadding = UDim2.new(0.02, 0, 0, 6)
-serverInfoLayout.SortOrder = Enum.SortOrder.LayoutOrder
-serverInfoLayout.Parent = serverInfoFrame
+local siLayout = Instance.new("UIGridLayout")
+siLayout.CellSize = UDim2.new(0.32, 0, 0, 58)
+siLayout.CellPadding = UDim2.new(0.02, 0, 0, 6)
+siLayout.SortOrder = Enum.SortOrder.LayoutOrder
+siLayout.Parent = serverInfoFrame
 
 local serverStats = {
     {"Server", game.Name ~= "" and game.Name or "Unknown", 1},
-    {"Ping", "Calculating...", 2},
+    {"Ping", "...", 2},
     {"PlaceId", tostring(game.PlaceId), 3},
-    {"Admins", "N/A", 4},
-    {"Players", tostring(#Players:GetPlayers()) .. "/" .. tostring(Players.MaxPlayers), 5},
-    {"JobId", string.sub(game.JobId, 1, 8) .. "...", 6},
+    {"Players", tostring(#Players:GetPlayers()) .. "/" .. tostring(Players.MaxPlayers), 4},
+    {"JobId", string.sub(game.JobId, 1, 8) .. "...", 5},
+    {"FPS", "...", 6},
 }
 
+local serverInfoCards = {}
 for _, stat in ipairs(serverStats) do
     local card = Instance.new("Frame")
+    card.Name = "Card_" .. stat[1]
     card.BackgroundColor3 = GetTheme().SurfaceHover
     card.BorderSizePixel = 0
     card.LayoutOrder = stat[3]
     card.Parent = serverInfoFrame
-    CreateCorner(card, 8)
+    CreateCorner(card, 10)
     CreateStroke(card, GetTheme().Border, 1)
+    RegisterThemed(card, {BackgroundColor3 = "SurfaceHover"})
 
-    local statLabel = Instance.new("TextLabel")
-    statLabel.Size = UDim2.new(1, -10, 0, 16)
-    statLabel.Position = UDim2.new(0, 5, 0, 6)
-    statLabel.BackgroundTransparency = 1
-    statLabel.Text = stat[1]
-    statLabel.TextColor3 = GetTheme().TextSecondary
-    statLabel.TextSize = 9
-    statLabel.Font = Enum.Font.Gotham
-    statLabel.TextXAlignment = Enum.TextXAlignment.Center
-    statLabel.Parent = card
+    local sLabel = Instance.new("TextLabel")
+    sLabel.Size = UDim2.new(1, -10, 0, 16)
+    sLabel.Position = UDim2.new(0, 5, 0, 8)
+    sLabel.BackgroundTransparency = 1
+    sLabel.Text = stat[1]
+    sLabel.TextColor3 = GetTheme().TextSecondary
+    sLabel.TextSize = 9
+    sLabel.Font = Enum.Font.Gotham
+    sLabel.TextXAlignment = Enum.TextXAlignment.Center
+    sLabel.Parent = card
+    RegisterThemed(sLabel, {TextColor3 = "TextSecondary"})
 
-    local statValue = Instance.new("TextLabel")
-    statValue.Name = "Value"
-    statValue.Size = UDim2.new(1, -10, 0, 20)
-    statValue.Position = UDim2.new(0, 5, 0, 26)
-    statValue.BackgroundTransparency = 1
-    statValue.Text = stat[2]
-    statValue.TextColor3 = GetTheme().Text
-    statValue.TextSize = 11
-    statValue.Font = Enum.Font.GothamBold
-    statValue.TextXAlignment = Enum.TextXAlignment.Center
-    statValue.TextTruncate = Enum.TextTruncate.AtEnd
-    statValue.Parent = card
+    local sValue = Instance.new("TextLabel")
+    sValue.Name = "Value"
+    sValue.Size = UDim2.new(1, -10, 0, 20)
+    sValue.Position = UDim2.new(0, 5, 0, 28)
+    sValue.BackgroundTransparency = 1
+    sValue.Text = stat[2]
+    sValue.TextColor3 = GetTheme().Text
+    sValue.TextSize = 11
+    sValue.Font = Enum.Font.GothamBold
+    sValue.TextXAlignment = Enum.TextXAlignment.Center
+    sValue.TextTruncate = Enum.TextTruncate.AtEnd
+    sValue.Parent = card
+    RegisterThemed(sValue, {TextColor3 = "Text"})
+
+    serverInfoCards[stat[1]] = sValue
 end
 
--- Teleport Actions
+-- ═══════════════════════════════════════════════════════════════
+-- [FIX] CHECKPOINT TELEPORT with dynamic scanning & selection
+-- ═══════════════════════════════════════════════════════════════
 CreateSectionHeader(serverPanel, "TELEPORT ACTIONS", 3)
 
-local teleportFrame = Instance.new("Frame")
-teleportFrame.Name = "TeleportActions"
-teleportFrame.Size = UDim2.new(1, 0, 0, 0)
-teleportFrame.AutomaticSize = Enum.AutomaticSize.Y
-teleportFrame.BackgroundTransparency = 1
-teleportFrame.LayoutOrder = 4
-teleportFrame.Parent = serverPanel
+local tpFrame = Instance.new("Frame")
+tpFrame.Size = UDim2.new(1, 0, 0, 0)
+tpFrame.AutomaticSize = Enum.AutomaticSize.Y
+tpFrame.BackgroundTransparency = 1
+tpFrame.LayoutOrder = 4
+tpFrame.Parent = serverPanel
 
-local teleportLayout = Instance.new("UIGridLayout")
-teleportLayout.CellSize = UDim2.new(0.48, 0, 0, 36)
-teleportLayout.CellPadding = UDim2.new(0.04, 0, 0, 6)
-teleportLayout.SortOrder = Enum.SortOrder.LayoutOrder
-teleportLayout.Parent = teleportFrame
+local tpLayout = Instance.new("UIListLayout")
+tpLayout.SortOrder = Enum.SortOrder.LayoutOrder
+tpLayout.Padding = UDim.new(0, 6)
+tpLayout.Parent = tpFrame
 
-local function TeleportToSpawn()
+-- Spawn teleport button
+local spawnBtnRow = Instance.new("Frame")
+spawnBtnRow.Size = UDim2.new(1, 0, 0, 42)
+spawnBtnRow.BackgroundTransparency = 1
+spawnBtnRow.LayoutOrder = 1
+spawnBtnRow.Parent = tpFrame
+
+local spawnBtnLayout = Instance.new("UIGridLayout")
+spawnBtnLayout.CellSize = UDim2.new(0.48, 0, 0, 42)
+spawnBtnLayout.CellPadding = UDim2.new(0.04, 0, 0, 6)
+spawnBtnLayout.SortOrder = Enum.SortOrder.LayoutOrder
+spawnBtnLayout.Parent = spawnBtnRow
+
+CreateActionButton(spawnBtnRow, "🏠 TP to Spawn", GetTheme().Primary, 1, function()
     local root = GetRootPart()
-    if root then
-        local spawn = Workspace:FindFirstChild("SpawnLocation") or Workspace:FindFirstChildOfClass("SpawnLocation")
-        if spawn then
-            root.CFrame = spawn.CFrame + Vector3.new(0, 5, 0)
-        end
+    if not root then return end
+    local spawn = nil
+    for _, n in ipairs({"SpawnLocation", "Spawn", "spawn", "SpawnPoint"}) do
+        spawn = Workspace:FindFirstChild(n, true)
+        if spawn then break end
     end
-end
-
-local function TeleportToCheckpoint()
-    local root = GetRootPart()
-    if root then
-        -- Try common checkpoint names
-        for _, name in ipairs({"Checkpoint", "CP", "Stage", "checkpoint", "cp"}) do
-            local cp = Workspace:FindFirstChild(name, true)
-            if cp and cp:IsA("BasePart") then
-                root.CFrame = cp.CFrame + Vector3.new(0, 5, 0)
-                return
-            end
-        end
+    if not spawn then spawn = Workspace:FindFirstChildOfClass("SpawnLocation") end
+    if spawn and spawn:IsA("BasePart") then
+        root.CFrame = spawn.CFrame + Vector3.new(0, 5, 0)
+        Notify("Teleport", "Teleported to Spawn!")
+    else
+        Notify("Teleport", "No spawn found!")
     end
-end
+end)
 
-CreateActionButton(teleportFrame, "🏠 TP to Spawn", GetTheme().Primary, 1, TeleportToSpawn)
-CreateActionButton(teleportFrame, "🚩 TP to Checkpoint", GetTheme().Primary, 2, TeleportToCheckpoint)
-CreateActionButton(teleportFrame, "▶️ Auto Submit", GetTheme().Success, 3, function()
-    -- Auto submit logic - fires common remote events
+-- [FIX] Checkpoint scanner
+local function ScanCheckpoints()
+    local cps = {}
+    local patterns = {"checkpoint", "cp", "stage", "check", "point"}
     pcall(function()
-        for _, v in pairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
-            if v:IsA("RemoteEvent") and (v.Name:lower():find("submit") or v.Name:lower():find("finish") or v.Name:lower():find("complete")) then
-                v:FireServer()
+        for _, obj in pairs(Workspace:GetDescendants()) do
+            if obj:IsA("BasePart") or obj:IsA("Model") then
+                local name = obj.Name:lower()
+                local isCP = false
+                local cpNum = nil
+                for _, p in ipairs(patterns) do
+                    if name:find(p) then
+                        isCP = true
+                        cpNum = tonumber(name:match("%d+"))
+                        break
+                    end
+                end
+                if not isCP and obj.Parent then
+                    local pName = obj.Parent.Name:lower()
+                    for _, p in ipairs(patterns) do
+                        if pName:find(p) then
+                            isCP = true
+                            cpNum = tonumber(obj.Name:match("%d+"))
+                            break
+                        end
+                    end
+                end
+                if isCP then
+                    local cf = nil
+                    if obj:IsA("BasePart") then
+                        cf = obj.CFrame
+                    elseif obj:IsA("Model") then
+                        pcall(function()
+                            local part = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+                            if part then cf = part.CFrame end
+                        end)
+                    end
+                    if cf then
+                        table.insert(cps, {Name = obj.Name, Number = cpNum or #cps + 1, CFrame = cf})
+                    end
+                end
             end
         end
     end)
+    table.sort(cps, function(a, b) return a.Number < b.Number end)
+    return cps
+end
+
+-- CP Selector UI
+local cpFrame = Instance.new("Frame")
+cpFrame.Size = UDim2.new(1, 0, 0, 200)
+cpFrame.BackgroundColor3 = GetTheme().SurfaceHover
+cpFrame.BorderSizePixel = 0
+cpFrame.LayoutOrder = 2
+cpFrame.Parent = tpFrame
+CreateCorner(cpFrame, 10)
+CreateStroke(cpFrame, GetTheme().Border, 1)
+RegisterThemed(cpFrame, {BackgroundColor3 = "SurfaceHover"})
+
+local cpTitle = Instance.new("Frame")
+cpTitle.Size = UDim2.new(1, 0, 0, 36)
+cpTitle.BackgroundColor3 = GetTheme().Surface
+cpTitle.BorderSizePixel = 0
+cpTitle.Parent = cpFrame
+CreateCorner(cpTitle, 10)
+RegisterThemed(cpTitle, {BackgroundColor3 = "Surface"})
+
+local cpTitleLabel = Instance.new("TextLabel")
+cpTitleLabel.Size = UDim2.new(0.6, 0, 1, 0)
+cpTitleLabel.Position = UDim2.new(0, 14, 0, 0)
+cpTitleLabel.BackgroundTransparency = 1
+cpTitleLabel.Text = "🚩 CHECKPOINT TELEPORT"
+cpTitleLabel.TextColor3 = GetTheme().Primary
+cpTitleLabel.TextSize = 11
+cpTitleLabel.Font = Enum.Font.GothamBold
+cpTitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+cpTitleLabel.Parent = cpTitle
+RegisterThemed(cpTitleLabel, {TextColor3 = "Primary"})
+
+local cpRefreshBtn = Instance.new("TextButton")
+cpRefreshBtn.Size = UDim2.new(0, 70, 0, 26)
+cpRefreshBtn.Position = UDim2.new(1, -80, 0.5, 0)
+cpRefreshBtn.AnchorPoint = Vector2.new(0, 0.5)
+cpRefreshBtn.BackgroundColor3 = GetTheme().Primary
+cpRefreshBtn.BackgroundTransparency = 0.85
+cpRefreshBtn.Text = "🔄 Scan"
+cpRefreshBtn.TextColor3 = GetTheme().Primary
+cpRefreshBtn.TextSize = 10
+cpRefreshBtn.Font = Enum.Font.GothamBold
+cpRefreshBtn.BorderSizePixel = 0
+cpRefreshBtn.Parent = cpTitle
+CreateCorner(cpRefreshBtn, 6)
+
+local cpCountLabel = Instance.new("TextLabel")
+cpCountLabel.Size = UDim2.new(1, -20, 0, 18)
+cpCountLabel.Position = UDim2.new(0, 10, 0, 40)
+cpCountLabel.BackgroundTransparency = 1
+cpCountLabel.Text = "Scanning..."
+cpCountLabel.TextColor3 = GetTheme().TextSecondary
+cpCountLabel.TextSize = 10
+cpCountLabel.Font = Enum.Font.Gotham
+cpCountLabel.TextXAlignment = Enum.TextXAlignment.Left
+cpCountLabel.Parent = cpFrame
+RegisterThemed(cpCountLabel, {TextColor3 = "TextSecondary"})
+
+local cpScroll = Instance.new("ScrollingFrame")
+cpScroll.Size = UDim2.new(1, -16, 0, 130)
+cpScroll.Position = UDim2.new(0, 8, 0, 62)
+cpScroll.BackgroundTransparency = 1
+cpScroll.ScrollBarThickness = 3
+cpScroll.ScrollBarImageColor3 = GetTheme().Primary
+cpScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+cpScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+cpScroll.BorderSizePixel = 0
+cpScroll.Parent = cpFrame
+RegisterThemed(cpScroll, {ScrollBarImageColor3 = "Primary"})
+
+local cpGridLayout = Instance.new("UIGridLayout")
+cpGridLayout.CellSize = UDim2.new(0.48, 0, 0, 34)
+cpGridLayout.CellPadding = UDim2.new(0.04, 0, 0, 4)
+cpGridLayout.SortOrder = Enum.SortOrder.LayoutOrder
+cpGridLayout.Parent = cpScroll
+
+local function RefreshCheckpoints()
+    for _, c in ipairs(cpScroll:GetChildren()) do
+        if c:IsA("TextButton") then c:Destroy() end
+    end
+    local cps = ScanCheckpoints()
+    if #cps == 0 then
+        cpCountLabel.Text = "No checkpoints found (0 CP)"
+    else
+        cpCountLabel.Text = "Found " .. #cps .. " checkpoint(s) — Click to teleport"
+        for i, cp in ipairs(cps) do
+            local cpBtn = Instance.new("TextButton")
+            cpBtn.Size = UDim2.new(0.48, 0, 0, 34)
+            cpBtn.BackgroundColor3 = GetTheme().Surface
+            cpBtn.BackgroundTransparency = 0.3
+            cpBtn.Text = "🚩 " .. cp.Name
+            cpBtn.TextColor3 = GetTheme().Text
+            cpBtn.TextSize = 10
+            cpBtn.Font = Enum.Font.GothamMedium
+            cpBtn.TextTruncate = Enum.TextTruncate.AtEnd
+            cpBtn.LayoutOrder = i
+            cpBtn.BorderSizePixel = 0
+            cpBtn.Parent = cpScroll
+            CreateCorner(cpBtn, 8)
+            CreateStroke(cpBtn, GetTheme().Border, 1, 0.5)
+
+            cpBtn.MouseEnter:Connect(function()
+                Tween(cpBtn, {BackgroundTransparency = 0.1}, 0.15)
+            end)
+            cpBtn.MouseLeave:Connect(function()
+                Tween(cpBtn, {BackgroundTransparency = 0.3}, 0.15)
+            end)
+            cpBtn.MouseButton1Click:Connect(function()
+                local root = GetRootPart()
+                if root and cp.CFrame then
+                    root.CFrame = cp.CFrame + Vector3.new(0, 5, 0)
+                    Notify("Teleport", "TP to " .. cp.Name .. "!")
+                    Tween(cpBtn, {BackgroundColor3 = GetTheme().Success}, 0.15)
+                    wait(0.3)
+                    Tween(cpBtn, {BackgroundColor3 = GetTheme().Surface}, 0.15)
+                end
+            end)
+        end
+    end
+end
+
+cpRefreshBtn.MouseButton1Click:Connect(function()
+    cpCountLabel.Text = "Scanning..."
+    wait(0.1)
+    RefreshCheckpoints()
+end)
+
+spawn(function() wait(1); RefreshCheckpoints() end)
+
+-- ═══════════════════════════════════════════════════════════════
+-- [FIX] AUTO SUBMIT — improved detection & feedback
+-- ═══════════════════════════════════════════════════════════════
+local asFrame = Instance.new("Frame")
+asFrame.Size = UDim2.new(1, 0, 0, 140)
+asFrame.BackgroundColor3 = GetTheme().SurfaceHover
+asFrame.BorderSizePixel = 0
+asFrame.LayoutOrder = 3
+asFrame.Parent = tpFrame
+CreateCorner(asFrame, 10)
+CreateStroke(asFrame, GetTheme().Border, 1)
+RegisterThemed(asFrame, {BackgroundColor3 = "SurfaceHover"})
+
+local asTitle = Instance.new("TextLabel")
+asTitle.Size = UDim2.new(1, -20, 0, 28)
+asTitle.Position = UDim2.new(0, 14, 0, 6)
+asTitle.BackgroundTransparency = 1
+asTitle.Text = "▶️ AUTO SUBMIT / FINISH"
+asTitle.TextColor3 = GetTheme().Success
+asTitle.TextSize = 11
+asTitle.Font = Enum.Font.GothamBold
+asTitle.TextXAlignment = Enum.TextXAlignment.Left
+asTitle.Parent = asFrame
+
+local asDesc = Instance.new("TextLabel")
+asDesc.Size = UDim2.new(1, -20, 0, 14)
+asDesc.Position = UDim2.new(0, 14, 0, 32)
+asDesc.BackgroundTransparency = 1
+asDesc.Text = "Fires submit/finish/complete remotes + TP to finish zone"
+asDesc.TextColor3 = GetTheme().TextSecondary
+asDesc.TextSize = 9
+asDesc.Font = Enum.Font.Gotham
+asDesc.TextXAlignment = Enum.TextXAlignment.Left
+asDesc.Parent = asFrame
+RegisterThemed(asDesc, {TextColor3 = "TextSecondary"})
+
+local asBtnRow = Instance.new("Frame")
+asBtnRow.Size = UDim2.new(1, -16, 0, 36)
+asBtnRow.Position = UDim2.new(0, 8, 0, 50)
+asBtnRow.BackgroundTransparency = 1
+asBtnRow.Parent = asFrame
+
+local asBtnLayout = Instance.new("UIGridLayout")
+asBtnLayout.CellSize = UDim2.new(0.48, 0, 0, 36)
+asBtnLayout.CellPadding = UDim2.new(0.04, 0, 0, 4)
+asBtnLayout.SortOrder = Enum.SortOrder.LayoutOrder
+asBtnLayout.Parent = asBtnRow
+
+local asLog = Instance.new("TextLabel")
+asLog.Size = UDim2.new(1, -20, 0, 40)
+asLog.Position = UDim2.new(0, 14, 0, 92)
+asLog.BackgroundTransparency = 1
+asLog.Text = ""
+asLog.TextColor3 = GetTheme().TextSecondary
+asLog.TextSize = 9
+asLog.Font = Enum.Font.Code
+asLog.TextXAlignment = Enum.TextXAlignment.Left
+asLog.TextWrapped = true
+asLog.Parent = asFrame
+RegisterThemed(asLog, {TextColor3 = "TextSecondary"})
+
+CreateActionButton(asBtnRow, "▶️ Auto Submit", GetTheme().Success, 1, function()
+    local fired = 0
+    local log = ""
+    pcall(function()
+        for _, v in pairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
+            if v:IsA("RemoteEvent") then
+                local n = v.Name:lower()
+                if n:find("submit") or n:find("finish") or n:find("complete") or n:find("win") or n:find("done") then
+                    pcall(function() v:FireServer(); fired = fired + 1; log = log .. "✅ " .. v.Name .. " " end)
+                end
+            elseif v:IsA("RemoteFunction") then
+                local n = v.Name:lower()
+                if n:find("submit") or n:find("finish") or n:find("complete") then
+                    pcall(function() v:InvokeServer(); fired = fired + 1; log = log .. "✅ " .. v.Name .. " " end)
+                end
+            end
+        end
+        -- TP to finish zone
+        for _, v in pairs(Workspace:GetDescendants()) do
+            if v:IsA("BasePart") then
+                local n = v.Name:lower()
+                if n:find("finish") or n:find("end") or n:find("win") or n:find("complete") then
+                    local root = GetRootPart()
+                    if root then
+                        root.CFrame = v.CFrame + Vector3.new(0, 3, 0)
+                        log = log .. "📍 TP:" .. v.Name
+                        fired = fired + 1
+                    end
+                    break
+                end
+            end
+        end
+    end)
+    if fired > 0 then
+        asLog.Text = log .. " | Total: " .. fired
+        Notify("Auto Submit", fired .. " action(s) fired!")
+    else
+        asLog.Text = "❌ No submit/finish remotes found"
+        Notify("Auto Submit", "No remotes found!")
+    end
+end)
+
+CreateActionButton(asBtnRow, "🔍 Scan Remotes", GetTheme().Primary, 2, function()
+    local found = 0
+    local log = ""
+    pcall(function()
+        for _, v in pairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
+            if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
+                local n = v.Name:lower()
+                if n:find("submit") or n:find("finish") or n:find("complete") or n:find("win") or n:find("done") then
+                    found = found + 1
+                    log = log .. v.Name .. " "
+                end
+            end
+        end
+    end)
+    asLog.Text = found > 0 and ("📡 " .. found .. " found: " .. log) or "❌ None found"
 end)
 
 -- Player List
 CreateSectionHeader(serverPanel, "PLAYER LIST", 5)
 
-local playerListFrame = Instance.new("Frame")
-playerListFrame.Name = "PlayerList"
-playerListFrame.Size = UDim2.new(1, 0, 0, 200)
-playerListFrame.BackgroundColor3 = GetTheme().SurfaceHover
-playerListFrame.BorderSizePixel = 0
-playerListFrame.LayoutOrder = 6
-playerListFrame.ClipsDescendants = true
-playerListFrame.Parent = serverPanel
-CreateCorner(playerListFrame, 10)
-CreateStroke(playerListFrame, GetTheme().Border, 1)
+local plFrame = Instance.new("Frame")
+plFrame.Size = UDim2.new(1, 0, 0, 200)
+plFrame.BackgroundColor3 = GetTheme().SurfaceHover
+plFrame.BorderSizePixel = 0
+plFrame.LayoutOrder = 6
+plFrame.ClipsDescendants = true
+plFrame.Parent = serverPanel
+CreateCorner(plFrame, 10)
+CreateStroke(plFrame, GetTheme().Border, 1)
+RegisterThemed(plFrame, {BackgroundColor3 = "SurfaceHover"})
 
--- Search bar
 local searchFrame = Instance.new("Frame")
-searchFrame.Size = UDim2.new(1, 0, 0, 32)
+searchFrame.Size = UDim2.new(1, 0, 0, 34)
 searchFrame.BackgroundColor3 = GetTheme().Surface
 searchFrame.BorderSizePixel = 0
-searchFrame.Parent = playerListFrame
+searchFrame.Parent = plFrame
+RegisterThemed(searchFrame, {BackgroundColor3 = "Surface"})
 
 local searchBox = Instance.new("TextBox")
-searchBox.Name = "SearchBox"
 searchBox.Size = UDim2.new(1, -20, 1, -8)
 searchBox.Position = UDim2.new(0, 10, 0, 4)
 searchBox.BackgroundTransparency = 1
@@ -932,58 +1254,54 @@ searchBox.Font = Enum.Font.Gotham
 searchBox.TextXAlignment = Enum.TextXAlignment.Left
 searchBox.ClearTextOnFocus = false
 searchBox.Parent = searchFrame
+RegisterThemed(searchBox, {TextColor3 = "Text"})
 
-local playerScroll = Instance.new("ScrollingFrame")
-playerScroll.Name = "PlayerScroll"
-playerScroll.Size = UDim2.new(1, 0, 1, -34)
-playerScroll.Position = UDim2.new(0, 0, 0, 34)
-playerScroll.BackgroundTransparency = 1
-playerScroll.ScrollBarThickness = 3
-playerScroll.ScrollBarImageColor3 = GetTheme().Primary
-playerScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-playerScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-playerScroll.Parent = playerListFrame
+local plScroll = Instance.new("ScrollingFrame")
+plScroll.Size = UDim2.new(1, 0, 1, -36)
+plScroll.Position = UDim2.new(0, 0, 0, 36)
+plScroll.BackgroundTransparency = 1
+plScroll.ScrollBarThickness = 3
+plScroll.ScrollBarImageColor3 = GetTheme().Primary
+plScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+plScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+plScroll.Parent = plFrame
+RegisterThemed(plScroll, {ScrollBarImageColor3 = "Primary"})
 
-local playerListLayout = Instance.new("UIListLayout")
-playerListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-playerListLayout.Padding = UDim.new(0, 1)
-playerListLayout.Parent = playerScroll
+local plListLayout = Instance.new("UIListLayout")
+plListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+plListLayout.Padding = UDim.new(0, 1)
+plListLayout.Parent = plScroll
 
-local function RefreshPlayerList(query)
-    for _, child in ipairs(playerScroll:GetChildren()) do
-        if child:IsA("Frame") then child:Destroy() end
-    end
-    
-    for i, player in ipairs(Players:GetPlayers()) do
-        local name = player.Name:lower()
-        local displayName = player.DisplayName:lower()
-        local q = (query or ""):lower()
-        
-        if q == "" or name:find(q) or displayName:find(q) then
+local function RefreshPlayerList(q)
+    for _, c in ipairs(plScroll:GetChildren()) do if c:IsA("Frame") then c:Destroy() end end
+    for i, p in ipairs(Players:GetPlayers()) do
+        local nm = p.Name:lower()
+        local dn = p.DisplayName:lower()
+        local query = (q or ""):lower()
+        if query == "" or nm:find(query) or dn:find(query) then
             local row = Instance.new("Frame")
-            row.Name = "Player_" .. player.Name
-            row.Size = UDim2.new(1, 0, 0, 34)
+            row.Size = UDim2.new(1, 0, 0, 36)
             row.BackgroundColor3 = GetTheme().Surface
-            row.BackgroundTransparency = i % 2 == 0 and 0.5 or 1
+            row.BackgroundTransparency = i % 2 == 0 and 0.4 or 0.8
             row.BorderSizePixel = 0
             row.LayoutOrder = i
-            row.Parent = playerScroll
+            row.Parent = plScroll
 
-            local nameLabel = Instance.new("TextLabel")
-            nameLabel.Size = UDim2.new(0.55, -10, 1, 0)
-            nameLabel.Position = UDim2.new(0, 10, 0, 0)
-            nameLabel.BackgroundTransparency = 1
-            nameLabel.Text = player.DisplayName .. " (@" .. player.Name .. ")"
-            nameLabel.TextColor3 = GetTheme().Text
-            nameLabel.TextSize = 10
-            nameLabel.Font = Enum.Font.GothamMedium
-            nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-            nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
-            nameLabel.Parent = row
+            local nl = Instance.new("TextLabel")
+            nl.Size = UDim2.new(0.55, -10, 1, 0)
+            nl.Position = UDim2.new(0, 12, 0, 0)
+            nl.BackgroundTransparency = 1
+            nl.Text = p.DisplayName .. " (@" .. p.Name .. ")"
+            nl.TextColor3 = GetTheme().Text
+            nl.TextSize = 10
+            nl.Font = Enum.Font.GothamMedium
+            nl.TextXAlignment = Enum.TextXAlignment.Left
+            nl.TextTruncate = Enum.TextTruncate.AtEnd
+            nl.Parent = row
 
             local tpBtn = Instance.new("TextButton")
-            tpBtn.Size = UDim2.new(0, 70, 0, 24)
-            tpBtn.Position = UDim2.new(1, -80, 0.5, 0)
+            tpBtn.Size = UDim2.new(0, 74, 0, 26)
+            tpBtn.Position = UDim2.new(1, -84, 0.5, 0)
             tpBtn.AnchorPoint = Vector2.new(0, 0.5)
             tpBtn.BackgroundColor3 = GetTheme().Primary
             tpBtn.BackgroundTransparency = 0.8
@@ -993,13 +1311,14 @@ local function RefreshPlayerList(query)
             tpBtn.Font = Enum.Font.GothamBold
             tpBtn.Parent = row
             CreateCorner(tpBtn, 6)
-            CreateStroke(tpBtn, GetTheme().Primary, 1, 0.6)
+            CreateStroke(tpBtn, GetTheme().Primary, 1, 0.5)
 
             tpBtn.MouseButton1Click:Connect(function()
                 local root = GetRootPart()
-                local targetChar = player.Character
-                if root and targetChar and targetChar:FindFirstChild("HumanoidRootPart") then
-                    root.CFrame = targetChar.HumanoidRootPart.CFrame + Vector3.new(0, 3, 0)
+                local tc = p.Character
+                if root and tc and tc:FindFirstChild("HumanoidRootPart") then
+                    root.CFrame = tc.HumanoidRootPart.CFrame + Vector3.new(0, 3, 0)
+                    Notify("Teleport", "TP to " .. p.DisplayName)
                 end
             end)
         end
@@ -1007,76 +1326,58 @@ local function RefreshPlayerList(query)
 end
 
 RefreshPlayerList("")
-searchBox:GetPropertyChangedSignal("Text"):Connect(function()
-    RefreshPlayerList(searchBox.Text)
-end)
+searchBox:GetPropertyChangedSignal("Text"):Connect(function() RefreshPlayerList(searchBox.Text) end)
 Players.PlayerAdded:Connect(function() RefreshPlayerList(searchBox.Text) end)
 Players.PlayerRemoving:Connect(function() wait(0.1) RefreshPlayerList(searchBox.Text) end)
 
 -- ═══════════════════════════════════════════════════════════════
 -- PANEL 3: UTILITIES
 -- ═══════════════════════════════════════════════════════════════
-local utilitiesPanel = CreatePanel("utilities", false)
-
-CreateSectionHeader(utilitiesPanel, "CHARACTER CONTROLS", 1)
-
-CreateSlider(utilitiesPanel, "WALKSPEED", 0, 500, 16, 2, function(value)
-    State.WalkSpeed = value
-    local hum = GetHumanoid()
-    if hum then hum.WalkSpeed = value end
+local utilPanel = CreatePanel("utilities", false)
+CreateSectionHeader(utilPanel, "CHARACTER CONTROLS", 1)
+CreateSlider(utilPanel, "WALKSPEED", 0, 500, 16, 2, function(v)
+    State.WalkSpeed = v; local h = GetHumanoid(); if h then h.WalkSpeed = v end
 end)
-
-CreateSlider(utilitiesPanel, "JUMP POWER", 0, 500, 50, 3, function(value)
-    State.JumpPower = value
-    local hum = GetHumanoid()
-    if hum then hum.JumpPower = value end
+CreateSlider(utilPanel, "JUMP POWER", 0, 500, 50, 3, function(v)
+    State.JumpPower = v; local h = GetHumanoid(); if h then h.JumpPower = v end
 end)
+CreateToggle(utilPanel, "NOCLIP", "Walk through walls (Press N to toggle)", 4, function(e) State.NoclipEnabled = e end)
 
-CreateToggle(utilitiesPanel, "NOCLIP", "Walk through walls and objects", 4, function(enabled)
-    State.NoclipEnabled = enabled
+CreateSectionHeader(utilPanel, "SERVER UTILITIES", 5)
+local ubFrame = Instance.new("Frame")
+ubFrame.Size = UDim2.new(1, 0, 0, 0)
+ubFrame.AutomaticSize = Enum.AutomaticSize.Y
+ubFrame.BackgroundTransparency = 1
+ubFrame.LayoutOrder = 6
+ubFrame.Parent = utilPanel
+
+local ubLayout = Instance.new("UIGridLayout")
+ubLayout.CellSize = UDim2.new(0.48, 0, 0, 42)
+ubLayout.CellPadding = UDim2.new(0.04, 0, 0, 6)
+ubLayout.SortOrder = Enum.SortOrder.LayoutOrder
+ubLayout.Parent = ubFrame
+
+CreateActionButton(ubFrame, "🔄 Reset Character", Color3.fromHex("#ff3355"), 1, function()
+    local h = GetHumanoid(); if h then h.Health = 0 end
 end)
-
-CreateSectionHeader(utilitiesPanel, "SERVER UTILITIES", 5)
-
-local utilBtnFrame = Instance.new("Frame")
-utilBtnFrame.Name = "UtilButtons"
-utilBtnFrame.Size = UDim2.new(1, 0, 0, 0)
-utilBtnFrame.AutomaticSize = Enum.AutomaticSize.Y
-utilBtnFrame.BackgroundTransparency = 1
-utilBtnFrame.LayoutOrder = 6
-utilBtnFrame.Parent = utilitiesPanel
-
-local utilBtnLayout = Instance.new("UIGridLayout")
-utilBtnLayout.CellSize = UDim2.new(0.48, 0, 0, 40)
-utilBtnLayout.CellPadding = UDim2.new(0.04, 0, 0, 6)
-utilBtnLayout.SortOrder = Enum.SortOrder.LayoutOrder
-utilBtnLayout.Parent = utilBtnFrame
-
-CreateActionButton(utilBtnFrame, "🔄 Reset Character", Color3.fromHex("#ff3355"), 1, function()
-    local hum = GetHumanoid()
-    if hum then hum.Health = 0 end
-end)
-
-CreateActionButton(utilBtnFrame, "🔁 Rejoin Server", Color3.fromHex("#ffaa00"), 2, function()
+CreateActionButton(ubFrame, "🔁 Rejoin Server", Color3.fromHex("#ffaa00"), 2, function()
     TeleportService:Teleport(game.PlaceId, LocalPlayer)
 end)
-
-CreateActionButton(utilBtnFrame, "📋 Copy JobId", GetTheme().Primary, 3, function()
-    pcall(function()
-        setclipboard(game.JobId)
-    end)
+CreateActionButton(ubFrame, "📋 Copy JobId", GetTheme().Primary, 3, function()
+    pcall(function() setclipboard(game.JobId); Notify("Copied", "JobId copied!") end)
 end)
-
-CreateActionButton(utilBtnFrame, "🔀 Server Hop", Color3.fromHex("#7b2dff"), 4, function()
+CreateActionButton(ubFrame, "🔀 Server Hop", Color3.fromHex("#7b2dff"), 4, function()
+    Notify("Server Hop", "Finding server...")
     pcall(function()
-        local servers = HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"))
-        if servers and servers.data then
-            for _, server in ipairs(servers.data) do
-                if server.id ~= game.JobId and server.playing < server.maxPlayers then
-                    TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id, LocalPlayer)
+        local s = HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"))
+        if s and s.data then
+            for _, sv in ipairs(s.data) do
+                if sv.id ~= game.JobId and sv.playing < sv.maxPlayers then
+                    TeleportService:TeleportToPlaceInstance(game.PlaceId, sv.id, LocalPlayer)
                     return
                 end
             end
+            Notify("Server Hop", "No servers found!")
         end
     end)
 end)
@@ -1085,435 +1386,286 @@ end)
 -- PANEL 4: SCRIPT ANALYZER
 -- ═══════════════════════════════════════════════════════════════
 local analyzerPanel = CreatePanel("analyzer", false)
+CreateSectionHeader(analyzerPanel, "DETECTED SCRIPTS", 1)
 
-CreateSectionHeader(analyzerPanel, "LUA CHECKER — DETECTED SCRIPTS", 1)
+local stFrame = Instance.new("Frame")
+stFrame.Size = UDim2.new(1, 0, 0, 0)
+stFrame.AutomaticSize = Enum.AutomaticSize.Y
+stFrame.BackgroundTransparency = 1
+stFrame.LayoutOrder = 2
+stFrame.Parent = analyzerPanel
 
--- Stats
-local statsFrame = Instance.new("Frame")
-statsFrame.Name = "Stats"
-statsFrame.Size = UDim2.new(1, 0, 0, 0)
-statsFrame.AutomaticSize = Enum.AutomaticSize.Y
-statsFrame.BackgroundTransparency = 1
-statsFrame.LayoutOrder = 2
-statsFrame.Parent = analyzerPanel
+local stLayout = Instance.new("UIGridLayout")
+stLayout.CellSize = UDim2.new(0.24, 0, 0, 48)
+stLayout.CellPadding = UDim2.new(0.01, 0, 0, 4)
+stLayout.SortOrder = Enum.SortOrder.LayoutOrder
+stLayout.Parent = stFrame
 
-local statsLayout = Instance.new("UIGridLayout")
-statsLayout.CellSize = UDim2.new(0.24, 0, 0, 45)
-statsLayout.CellPadding = UDim2.new(0.01, 0, 0, 4)
-statsLayout.SortOrder = Enum.SortOrder.LayoutOrder
-statsLayout.Parent = statsFrame
-
--- Count scripts
 local function CountScripts()
-    local total, localScripts, serverScripts, moduleScripts = 0, 0, 0, 0
+    local t, l, s, m = 0, 0, 0, 0
     pcall(function()
         for _, v in pairs(game:GetDescendants()) do
-            if v:IsA("LocalScript") then localScripts = localScripts + 1; total = total + 1
-            elseif v:IsA("Script") and not v:IsA("LocalScript") then serverScripts = serverScripts + 1; total = total + 1
-            elseif v:IsA("ModuleScript") then moduleScripts = moduleScripts + 1; total = total + 1
-            end
+            if v:IsA("LocalScript") then l = l + 1; t = t + 1
+            elseif v:IsA("Script") and not v:IsA("LocalScript") then s = s + 1; t = t + 1
+            elseif v:IsA("ModuleScript") then m = m + 1; t = t + 1 end
         end
     end)
-    return total, localScripts, serverScripts, moduleScripts
+    return t, l, s, m
 end
 
-local totalS, localS, serverS, moduleS = CountScripts()
-
-local scriptStats = {
-    {"Total", tostring(totalS), GetTheme().Primary, 1},
-    {"LocalScript", tostring(localS), Color3.fromHex("#00f0ff"), 2},
-    {"Script", tostring(serverS), Color3.fromHex("#ff00aa"), 3},
-    {"ModuleScript", tostring(moduleS), Color3.fromHex("#7b2dff"), 4},
-}
-
-for _, stat in ipairs(scriptStats) do
+local tS, lS, sS, mS = CountScripts()
+for _, st in ipairs({
+    {"Total", tostring(tS), GetTheme().Primary, 1},
+    {"Local", tostring(lS), Color3.fromHex("#00f0ff"), 2},
+    {"Script", tostring(sS), Color3.fromHex("#ff00aa"), 3},
+    {"Module", tostring(mS), Color3.fromHex("#7b2dff"), 4},
+}) do
     local card = Instance.new("Frame")
     card.BackgroundColor3 = GetTheme().SurfaceHover
     card.BorderSizePixel = 0
-    card.LayoutOrder = stat[4]
-    card.Parent = statsFrame
+    card.LayoutOrder = st[4]
+    card.Parent = stFrame
     CreateCorner(card, 8)
     CreateStroke(card, GetTheme().Border, 1)
+    RegisterThemed(card, {BackgroundColor3 = "SurfaceHover"})
 
-    local val = Instance.new("TextLabel")
-    val.Size = UDim2.new(1, 0, 0, 22)
-    val.Position = UDim2.new(0, 0, 0, 4)
-    val.BackgroundTransparency = 1
-    val.Text = stat[2]
-    val.TextColor3 = stat[3]
-    val.TextSize = 16
-    val.Font = Enum.Font.GothamBold
-    val.Parent = card
+    local v = Instance.new("TextLabel")
+    v.Size = UDim2.new(1, 0, 0, 22)
+    v.Position = UDim2.new(0, 0, 0, 6)
+    v.BackgroundTransparency = 1
+    v.Text = st[2]
+    v.TextColor3 = st[3]
+    v.TextSize = 16
+    v.Font = Enum.Font.GothamBold
+    v.Parent = card
 
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(1, 0, 0, 14)
-    lbl.Position = UDim2.new(0, 0, 0, 26)
-    lbl.BackgroundTransparency = 1
-    lbl.Text = stat[1]
-    lbl.TextColor3 = GetTheme().TextSecondary
-    lbl.TextSize = 9
-    lbl.Font = Enum.Font.Gotham
-    lbl.Parent = card
+    local lb = Instance.new("TextLabel")
+    lb.Size = UDim2.new(1, 0, 0, 14)
+    lb.Position = UDim2.new(0, 0, 0, 28)
+    lb.BackgroundTransparency = 1
+    lb.Text = st[1]
+    lb.TextColor3 = GetTheme().TextSecondary
+    lb.TextSize = 9
+    lb.Font = Enum.Font.Gotham
+    lb.Parent = card
+    RegisterThemed(lb, {TextColor3 = "TextSecondary"})
 end
-
--- Script list (terminal style)
-local terminalFrame = Instance.new("ScrollingFrame")
-terminalFrame.Name = "Terminal"
-terminalFrame.Size = UDim2.new(1, 0, 0, 250)
-terminalFrame.BackgroundColor3 = GetTheme().Surface
-terminalFrame.BorderSizePixel = 0
-terminalFrame.ScrollBarThickness = 3
-terminalFrame.ScrollBarImageColor3 = GetTheme().Primary
-terminalFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-terminalFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
-terminalFrame.LayoutOrder = 3
-terminalFrame.Parent = analyzerPanel
-CreateCorner(terminalFrame, 10)
-CreateStroke(terminalFrame, GetTheme().Border, 1)
-
--- Terminal header
-local termHeader = Instance.new("Frame")
-termHeader.Size = UDim2.new(1, 0, 0, 28)
-termHeader.BackgroundColor3 = GetTheme().SurfaceHover
-termHeader.BorderSizePixel = 0
-termHeader.Parent = terminalFrame
-
-local dots = Instance.new("Frame")
-dots.Size = UDim2.new(0, 50, 0, 12)
-dots.Position = UDim2.new(0, 10, 0.5, 0)
-dots.AnchorPoint = Vector2.new(0, 0.5)
-dots.BackgroundTransparency = 1
-dots.Parent = termHeader
-
-for idx, col in ipairs({Color3.fromHex("#ff3355"), Color3.fromHex("#ffaa00"), Color3.fromHex("#00ff88")}) do
-    local dot = Instance.new("Frame")
-    dot.Size = UDim2.new(0, 10, 0, 10)
-    dot.Position = UDim2.new(0, (idx - 1) * 16, 0.5, 0)
-    dot.AnchorPoint = Vector2.new(0, 0.5)
-    dot.BackgroundColor3 = col
-    dot.BorderSizePixel = 0
-    dot.Parent = dots
-    CreateCorner(dot, 5)
-end
-
-local termTitle = Instance.new("TextLabel")
-termTitle.Size = UDim2.new(1, -80, 1, 0)
-termTitle.Position = UDim2.new(0, 70, 0, 0)
-termTitle.BackgroundTransparency = 1
-termTitle.Text = "lua_analyzer.exe"
-termTitle.TextColor3 = GetTheme().TextSecondary
-termTitle.TextSize = 10
-termTitle.Font = Enum.Font.Code
-termTitle.TextXAlignment = Enum.TextXAlignment.Left
-termTitle.Parent = termHeader
-
-local termContent = Instance.new("Frame")
-termContent.Name = "Content"
-termContent.Size = UDim2.new(1, 0, 0, 0)
-termContent.Position = UDim2.new(0, 0, 0, 30)
-termContent.AutomaticSize = Enum.AutomaticSize.Y
-termContent.BackgroundTransparency = 1
-termContent.Parent = terminalFrame
-
-local termContentLayout = Instance.new("UIListLayout")
-termContentLayout.SortOrder = Enum.SortOrder.LayoutOrder
-termContentLayout.Padding = UDim.new(0, 1)
-termContentLayout.Parent = termContent
-
--- Populate script list
-pcall(function()
-    local order = 0
-    local locations = {
-        game:GetService("StarterPlayer"),
-        game:GetService("StarterGui"),
-        game:GetService("ReplicatedStorage"),
-        game:GetService("ReplicatedFirst"),
-    }
-    
-    -- Also try accessible services
-    pcall(function() table.insert(locations, game:GetService("ServerScriptService")) end)
-    pcall(function() table.insert(locations, game:GetService("ServerStorage")) end)
-    
-    for _, location in ipairs(locations) do
-        pcall(function()
-            for _, v in pairs(location:GetDescendants()) do
-                if v:IsA("LocalScript") or v:IsA("ModuleScript") or (v:IsA("Script") and not v:IsA("LocalScript")) then
-                    order = order + 1
-                    if order > 50 then return end -- Limit display
-                    
-                    local scriptType = v.ClassName
-                    local typeColor = scriptType == "LocalScript" and Color3.fromHex("#00f0ff") 
-                        or scriptType == "ModuleScript" and Color3.fromHex("#7b2dff") 
-                        or Color3.fromHex("#ff00aa")
-                    
-                    local row = Instance.new("Frame")
-                    row.Size = UDim2.new(1, 0, 0, 28)
-                    row.BackgroundColor3 = GetTheme().Surface
-                    row.BackgroundTransparency = order % 2 == 0 and 0.3 or 0.6
-                    row.BorderSizePixel = 0
-                    row.LayoutOrder = order
-                    row.Parent = termContent
-
-                    local scriptName = Instance.new("TextLabel")
-                    scriptName.Size = UDim2.new(0.4, -5, 1, 0)
-                    scriptName.Position = UDim2.new(0, 10, 0, 0)
-                    scriptName.BackgroundTransparency = 1
-                    scriptName.Text = "📄 " .. v.Name
-                    scriptName.TextColor3 = GetTheme().Text
-                    scriptName.TextSize = 10
-                    scriptName.Font = Enum.Font.Code
-                    scriptName.TextXAlignment = Enum.TextXAlignment.Left
-                    scriptName.TextTruncate = Enum.TextTruncate.AtEnd
-                    scriptName.Parent = row
-
-                    local scriptTypeLabel = Instance.new("TextLabel")
-                    scriptTypeLabel.Size = UDim2.new(0.25, 0, 1, 0)
-                    scriptTypeLabel.Position = UDim2.new(0.4, 0, 0, 0)
-                    scriptTypeLabel.BackgroundTransparency = 1
-                    scriptTypeLabel.Text = scriptType
-                    scriptTypeLabel.TextColor3 = typeColor
-                    scriptTypeLabel.TextSize = 9
-                    scriptTypeLabel.Font = Enum.Font.Code
-                    scriptTypeLabel.Parent = row
-
-                    local scriptPath = Instance.new("TextLabel")
-                    scriptPath.Size = UDim2.new(0.35, -10, 1, 0)
-                    scriptPath.Position = UDim2.new(0.65, 0, 0, 0)
-                    scriptPath.BackgroundTransparency = 1
-                    scriptPath.Text = v.Parent and v.Parent:GetFullName() or "Unknown"
-                    scriptPath.TextColor3 = GetTheme().TextSecondary
-                    scriptPath.TextSize = 8
-                    scriptPath.Font = Enum.Font.Code
-                    scriptPath.TextXAlignment = Enum.TextXAlignment.Right
-                    scriptPath.TextTruncate = Enum.TextTruncate.AtEnd
-                    scriptPath.Parent = row
-                end
-            end
-        end)
-    end
-end)
 
 -- ═══════════════════════════════════════════════════════════════
--- PANEL 5: CREDITS & PLAYER INFO
+-- PANEL 5: CREDITS
 -- ═══════════════════════════════════════════════════════════════
 local creditsPanel = CreatePanel("credits", false)
+CreateSectionHeader(creditsPanel, "PLAYER INFO", 1)
 
-CreateSectionHeader(creditsPanel, "PLAYER INFORMATION", 1)
+local piFrame = Instance.new("Frame")
+piFrame.Size = UDim2.new(1, 0, 0, 0)
+piFrame.AutomaticSize = Enum.AutomaticSize.Y
+piFrame.BackgroundColor3 = GetTheme().SurfaceHover
+piFrame.BorderSizePixel = 0
+piFrame.LayoutOrder = 2
+piFrame.Parent = creditsPanel
+CreateCorner(piFrame, 10)
+CreateStroke(piFrame, GetTheme().Primary, 1, 0.6)
+RegisterThemed(piFrame, {BackgroundColor3 = "SurfaceHover"})
 
-local playerInfoFrame = Instance.new("Frame")
-playerInfoFrame.Name = "PlayerInfo"
-playerInfoFrame.Size = UDim2.new(1, 0, 0, 0)
-playerInfoFrame.AutomaticSize = Enum.AutomaticSize.Y
-playerInfoFrame.BackgroundColor3 = GetTheme().SurfaceHover
-playerInfoFrame.BorderSizePixel = 0
-playerInfoFrame.LayoutOrder = 2
-playerInfoFrame.Parent = creditsPanel
-CreateCorner(playerInfoFrame, 10)
-CreateStroke(playerInfoFrame, GetTheme().Primary, 1, 0.7)
+local piGridLayout = Instance.new("UIGridLayout")
+piGridLayout.CellSize = UDim2.new(0.48, 0, 0, 48)
+piGridLayout.CellPadding = UDim2.new(0.04, 0, 0, 6)
+piGridLayout.SortOrder = Enum.SortOrder.LayoutOrder
+piGridLayout.Parent = piFrame
+CreatePadding(piFrame, 10, 10, 10, 10)
 
-local piLayout = Instance.new("UIGridLayout")
-piLayout.CellSize = UDim2.new(0.48, 0, 0, 45)
-piLayout.CellPadding = UDim2.new(0.04, 0, 0, 6)
-piLayout.SortOrder = Enum.SortOrder.LayoutOrder
-piLayout.Parent = playerInfoFrame
-CreatePadding(playerInfoFrame, 10, 10, 10, 10)
-
-local playerData = {
+for _, d in ipairs({
     {"Username", LocalPlayer.Name, 1},
-    {"Display Name", LocalPlayer.DisplayName, 2},
+    {"Display", LocalPlayer.DisplayName, 2},
     {"UserId", tostring(LocalPlayer.UserId), 3},
     {"Status", "Online ✅", 4},
-    {"Account Age", tostring(LocalPlayer.AccountAge) .. " days", 5},
-    {"Membership", tostring(LocalPlayer.MembershipType), 6},
-}
-
-for _, data in ipairs(playerData) do
+    {"Age", tostring(LocalPlayer.AccountAge) .. " days", 5},
+    {"Member", tostring(LocalPlayer.MembershipType), 6},
+}) do
     local card = Instance.new("Frame")
     card.BackgroundColor3 = GetTheme().Surface
     card.BorderSizePixel = 0
-    card.LayoutOrder = data[3]
-    card.Parent = playerInfoFrame
+    card.LayoutOrder = d[3]
+    card.Parent = piFrame
     CreateCorner(card, 8)
+    RegisterThemed(card, {BackgroundColor3 = "Surface"})
 
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(1, -10, 0, 14)
-    lbl.Position = UDim2.new(0, 5, 0, 4)
-    lbl.BackgroundTransparency = 1
-    lbl.Text = data[1]
-    lbl.TextColor3 = GetTheme().TextSecondary
-    lbl.TextSize = 9
-    lbl.Font = Enum.Font.Gotham
-    lbl.TextXAlignment = Enum.TextXAlignment.Left
-    lbl.Parent = card
+    local lb = Instance.new("TextLabel")
+    lb.Size = UDim2.new(1, -10, 0, 14)
+    lb.Position = UDim2.new(0, 5, 0, 6)
+    lb.BackgroundTransparency = 1
+    lb.Text = d[1]
+    lb.TextColor3 = GetTheme().TextSecondary
+    lb.TextSize = 9
+    lb.Font = Enum.Font.Gotham
+    lb.TextXAlignment = Enum.TextXAlignment.Left
+    lb.Parent = card
+    RegisterThemed(lb, {TextColor3 = "TextSecondary"})
 
-    local val = Instance.new("TextLabel")
-    val.Size = UDim2.new(1, -10, 0, 18)
-    val.Position = UDim2.new(0, 5, 0, 20)
-    val.BackgroundTransparency = 1
-    val.Text = data[2]
-    val.TextColor3 = GetTheme().Text
-    val.TextSize = 11
-    val.Font = Enum.Font.GothamBold
-    val.TextXAlignment = Enum.TextXAlignment.Left
-    val.TextTruncate = Enum.TextTruncate.AtEnd
-    val.Parent = card
+    local vl = Instance.new("TextLabel")
+    vl.Size = UDim2.new(1, -10, 0, 18)
+    vl.Position = UDim2.new(0, 5, 0, 22)
+    vl.BackgroundTransparency = 1
+    vl.Text = d[2]
+    vl.TextColor3 = GetTheme().Text
+    vl.TextSize = 11
+    vl.Font = Enum.Font.GothamBold
+    vl.TextXAlignment = Enum.TextXAlignment.Left
+    vl.TextTruncate = Enum.TextTruncate.AtEnd
+    vl.Parent = card
+    RegisterThemed(vl, {TextColor3 = "Text"})
 end
 
--- Credits
 CreateSectionHeader(creditsPanel, "DEVELOPMENT TEAM", 3)
 
-local creditsData = {
-    {"Lead Developer & Engineer", "Sobing4413", "Core GUI Framework & Features"},
-}
+local creditCard = Instance.new("Frame")
+creditCard.Size = UDim2.new(1, 0, 0, 54)
+creditCard.BackgroundColor3 = GetTheme().SurfaceHover
+creditCard.BorderSizePixel = 0
+creditCard.LayoutOrder = 4
+creditCard.Parent = creditsPanel
+CreateCorner(creditCard, 10)
+CreateStroke(creditCard, GetTheme().Border, 1)
+RegisterThemed(creditCard, {BackgroundColor3 = "SurfaceHover"})
 
-for i, credit in ipairs(creditsData) do
-    local card = Instance.new("Frame")
-    card.Name = "Credit_" .. i
-    card.Size = UDim2.new(1, 0, 0, 50)
-    card.BackgroundColor3 = GetTheme().SurfaceHover
-    card.BorderSizePixel = 0
-    card.LayoutOrder = 3 + i
-    card.Parent = creditsPanel
-    CreateCorner(card, 10)
-    CreateStroke(card, GetTheme().Border, 1)
+local ccBadge = Instance.new("Frame")
+ccBadge.Size = UDim2.new(0, 38, 0, 38)
+ccBadge.Position = UDim2.new(0, 10, 0.5, 0)
+ccBadge.AnchorPoint = Vector2.new(0, 0.5)
+ccBadge.BackgroundColor3 = GetTheme().Primary
+ccBadge.BackgroundTransparency = 0.8
+ccBadge.BorderSizePixel = 0
+ccBadge.Parent = creditCard
+CreateCorner(ccBadge, 10)
+RegisterThemed(ccBadge, {BackgroundColor3 = "Primary"})
 
-    local badge = Instance.new("Frame")
-    badge.Size = UDim2.new(0, 36, 0, 36)
-    badge.Position = UDim2.new(0, 10, 0.5, 0)
-    badge.AnchorPoint = Vector2.new(0, 0.5)
-    badge.BackgroundColor3 = GetTheme().Primary
-    badge.BackgroundTransparency = 0.85
-    badge.BorderSizePixel = 0
-    badge.Parent = card
-    CreateCorner(badge, 8)
+local ccBT = Instance.new("TextLabel")
+ccBT.Size = UDim2.new(1, 0, 1, 0)
+ccBT.BackgroundTransparency = 1
+ccBT.Text = "S"
+ccBT.TextColor3 = GetTheme().Primary
+ccBT.TextSize = 16
+ccBT.Font = Enum.Font.GothamBold
+ccBT.Parent = ccBadge
+RegisterThemed(ccBT, {TextColor3 = "Primary"})
 
-    local badgeText = Instance.new("TextLabel")
-    badgeText.Size = UDim2.new(1, 0, 1, 0)
-    badgeText.BackgroundTransparency = 1
-    badgeText.Text = credit[2]:sub(1, 1)
-    badgeText.TextColor3 = GetTheme().Primary
-    badgeText.TextSize = 14
-    badgeText.Font = Enum.Font.GothamBold
-    badgeText.Parent = badge
+local ccName = Instance.new("TextLabel")
+ccName.Size = UDim2.new(0.6, -60, 0, 16)
+ccName.Position = UDim2.new(0, 58, 0, 10)
+ccName.BackgroundTransparency = 1
+ccName.Text = "Sobing4413"
+ccName.TextColor3 = GetTheme().Text
+ccName.TextSize = 13
+ccName.Font = Enum.Font.GothamBold
+ccName.TextXAlignment = Enum.TextXAlignment.Left
+ccName.Parent = creditCard
+RegisterThemed(ccName, {TextColor3 = "Text"})
 
-    local nameLabel = Instance.new("TextLabel")
-    nameLabel.Size = UDim2.new(0.6, -60, 0, 16)
-    nameLabel.Position = UDim2.new(0, 55, 0, 8)
-    nameLabel.BackgroundTransparency = 1
-    nameLabel.Text = credit[2]
-    nameLabel.TextColor3 = GetTheme().Text
-    nameLabel.TextSize = 12
-    nameLabel.Font = Enum.Font.GothamBold
-    nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-    nameLabel.Parent = card
+local ccRole = Instance.new("TextLabel")
+ccRole.Size = UDim2.new(0.7, -60, 0, 14)
+ccRole.Position = UDim2.new(0, 58, 0, 28)
+ccRole.BackgroundTransparency = 1
+ccRole.Text = "Lead Developer — Core Framework & Features"
+ccRole.TextColor3 = GetTheme().TextSecondary
+ccRole.TextSize = 9
+ccRole.Font = Enum.Font.Gotham
+ccRole.TextXAlignment = Enum.TextXAlignment.Left
+ccRole.Parent = creditCard
+RegisterThemed(ccRole, {TextColor3 = "TextSecondary"})
 
-    local roleLabel = Instance.new("TextLabel")
-    roleLabel.Size = UDim2.new(0.6, -60, 0, 14)
-    roleLabel.Position = UDim2.new(0, 55, 0, 26)
-    roleLabel.BackgroundTransparency = 1
-    roleLabel.Text = credit[1] .. " — " .. credit[3]
-    roleLabel.TextColor3 = GetTheme().TextSecondary
-    roleLabel.TextSize = 9
-    roleLabel.Font = Enum.Font.Gotham
-    roleLabel.TextXAlignment = Enum.TextXAlignment.Left
-    roleLabel.TextTruncate = Enum.TextTruncate.AtEnd
-    roleLabel.Parent = card
-end
+local verFrame = Instance.new("Frame")
+verFrame.Size = UDim2.new(1, 0, 0, 40)
+verFrame.BackgroundColor3 = GetTheme().SurfaceHover
+verFrame.BackgroundTransparency = 0.5
+verFrame.BorderSizePixel = 0
+verFrame.LayoutOrder = 10
+verFrame.Parent = creditsPanel
+CreateCorner(verFrame, 10)
+RegisterThemed(verFrame, {BackgroundColor3 = "SurfaceHover"})
 
--- Version
-local versionFrame = Instance.new("Frame")
-versionFrame.Name = "Version"
-versionFrame.Size = UDim2.new(1, 0, 0, 40)
-versionFrame.BackgroundColor3 = GetTheme().SurfaceHover
-versionFrame.BackgroundTransparency = 0.5
-versionFrame.BorderSizePixel = 0
-versionFrame.LayoutOrder = 10
-versionFrame.Parent = creditsPanel
-CreateCorner(versionFrame, 10)
-
-local versionText = Instance.new("TextLabel")
-versionText.Size = UDim2.new(1, 0, 1, 0)
-versionText.BackgroundTransparency = 1
-versionText.Text = "UNIVERSAL v2 v2.5.0 • Universal Roblox Script GUI • Built with ❤️"
-versionText.TextColor3 = GetTheme().TextSecondary
-versionText.TextSize = 10
-versionText.Font = Enum.Font.Gotham
-versionText.Parent = versionFrame
+local verText = Instance.new("TextLabel")
+verText.Size = UDim2.new(1, 0, 1, 0)
+verText.BackgroundTransparency = 1
+verText.Text = "UNIVERSAL v2 v2.6.0 • Fixed Edition • Built with ❤️"
+verText.TextColor3 = GetTheme().TextSecondary
+verText.TextSize = 10
+verText.Font = Enum.Font.Gotham
+verText.Parent = verFrame
+RegisterThemed(verText, {TextColor3 = "TextSecondary"})
 
 -- ═══════════════════════════════════════════════════════════════
--- PANEL 6: THEMES
+-- PANEL 6: THEMES — [FIX] Live theme switching
 -- ═══════════════════════════════════════════════════════════════
 local themesPanel = CreatePanel("themes", false)
+CreateSectionHeader(themesPanel, "SELECT THEME (Live Switch ✨)", 1)
 
-CreateSectionHeader(themesPanel, "SELECT THEME", 1)
+local themeLabels = {}
 
 for i, theme in ipairs(Themes) do
-    local themeBtn = Instance.new("TextButton")
-    themeBtn.Name = "Theme_" .. theme.Name
-    themeBtn.Size = UDim2.new(1, 0, 0, 45)
-    themeBtn.BackgroundColor3 = theme.SurfaceHover
-    themeBtn.BorderSizePixel = 0
-    themeBtn.Text = ""
-    themeBtn.LayoutOrder = i + 1
-    themeBtn.Parent = themesPanel
-    CreateCorner(themeBtn, 10)
-    CreateStroke(themeBtn, i == State.CurrentTheme and theme.Primary or theme.Border, 1)
+    local tBtn = Instance.new("TextButton")
+    tBtn.Size = UDim2.new(1, 0, 0, 50)
+    tBtn.BackgroundColor3 = theme.SurfaceHover
+    tBtn.BorderSizePixel = 0
+    tBtn.Text = ""
+    tBtn.LayoutOrder = i + 1
+    tBtn.Parent = themesPanel
+    CreateCorner(tBtn, 10)
+    local tStroke = CreateStroke(tBtn, i == State.CurrentTheme and theme.Primary or theme.Border, 1)
 
-    -- Color dots
-    local dot1 = Instance.new("Frame")
-    dot1.Size = UDim2.new(0, 16, 0, 16)
-    dot1.Position = UDim2.new(0, 15, 0.5, 0)
-    dot1.AnchorPoint = Vector2.new(0, 0.5)
-    dot1.BackgroundColor3 = theme.Primary
-    dot1.BorderSizePixel = 0
-    dot1.Parent = themeBtn
-    CreateCorner(dot1, 8)
-
-    local dot2 = Instance.new("Frame")
-    dot2.Size = UDim2.new(0, 16, 0, 16)
-    dot2.Position = UDim2.new(0, 36, 0.5, 0)
-    dot2.AnchorPoint = Vector2.new(0, 0.5)
-    dot2.BackgroundColor3 = theme.Secondary
-    dot2.BorderSizePixel = 0
-    dot2.Parent = themeBtn
-    CreateCorner(dot2, 8)
-
-    local themeName = Instance.new("TextLabel")
-    themeName.Size = UDim2.new(0.6, -60, 1, 0)
-    themeName.Position = UDim2.new(0, 60, 0, 0)
-    themeName.BackgroundTransparency = 1
-    themeName.Text = theme.Name
-    themeName.TextColor3 = theme.Text
-    themeName.TextSize = 12
-    themeName.Font = Enum.Font.GothamBold
-    themeName.TextXAlignment = Enum.TextXAlignment.Left
-    themeName.Parent = themeBtn
-
-    if i == State.CurrentTheme then
-        local activeLabel = Instance.new("TextLabel")
-        activeLabel.Name = "ActiveLabel"
-        activeLabel.Size = UDim2.new(0, 50, 0, 20)
-        activeLabel.Position = UDim2.new(1, -65, 0.5, 0)
-        activeLabel.AnchorPoint = Vector2.new(0, 0.5)
-        activeLabel.BackgroundColor3 = theme.Primary
-        activeLabel.BackgroundTransparency = 0.8
-        activeLabel.Text = "Active"
-        activeLabel.TextColor3 = theme.Primary
-        activeLabel.TextSize = 9
-        activeLabel.Font = Enum.Font.GothamBold
-        activeLabel.Parent = themeBtn
-        CreateCorner(activeLabel, 4)
+    for j, col in ipairs({theme.Primary, theme.Secondary, theme.Accent}) do
+        local dot = Instance.new("Frame")
+        dot.Size = UDim2.new(0, 18, 0, 18)
+        dot.Position = UDim2.new(0, 14 + (j-1)*22, 0.5, 0)
+        dot.AnchorPoint = Vector2.new(0, 0.5)
+        dot.BackgroundColor3 = col
+        dot.BorderSizePixel = 0
+        dot.Parent = tBtn
+        CreateCorner(dot, 9)
     end
 
-    themeBtn.MouseButton1Click:Connect(function()
+    local tName = Instance.new("TextLabel")
+    tName.Size = UDim2.new(0.5, -80, 1, 0)
+    tName.Position = UDim2.new(0, 84, 0, 0)
+    tName.BackgroundTransparency = 1
+    tName.Text = theme.Name
+    tName.TextColor3 = theme.Text
+    tName.TextSize = 12
+    tName.Font = Enum.Font.GothamBold
+    tName.TextXAlignment = Enum.TextXAlignment.Left
+    tName.Parent = tBtn
+
+    local aLabel = Instance.new("TextLabel")
+    aLabel.Size = UDim2.new(0, 56, 0, 22)
+    aLabel.Position = UDim2.new(1, -70, 0.5, 0)
+    aLabel.AnchorPoint = Vector2.new(0, 0.5)
+    aLabel.BackgroundColor3 = theme.Primary
+    aLabel.BackgroundTransparency = i == State.CurrentTheme and 0.8 or 1
+    aLabel.Text = i == State.CurrentTheme and "✓ Active" or "Apply"
+    aLabel.TextColor3 = theme.Primary
+    aLabel.TextSize = 9
+    aLabel.Font = Enum.Font.GothamBold
+    aLabel.Parent = tBtn
+    CreateCorner(aLabel, 6)
+
+    themeLabels[i] = {Label = aLabel, Stroke = tStroke}
+
+    tBtn.MouseButton1Click:Connect(function()
         State.CurrentTheme = i
-        -- Note: Full theme switching requires recreating the GUI
-        -- For simplicity, we show a notification
-        StarterGui:SetCore("SendNotification", {
-            Title = "UNIVERSAL v2",
-            Text = "Theme changed to " .. theme.Name .. ". Re-execute script to apply.",
-            Duration = 3,
-        })
+        for idx, data in pairs(themeLabels) do
+            if idx == i then
+                data.Label.Text = "✓ Active"
+                data.Label.BackgroundTransparency = 0.8
+                data.Stroke.Color = Themes[idx].Primary
+            else
+                data.Label.Text = "Apply"
+                data.Label.BackgroundTransparency = 1
+                data.Stroke.Color = Themes[idx].Border
+            end
+        end
+        -- [FIX] Live apply theme to all elements
+        ApplyThemeToAll()
+        Notify("🎨 Theme", "Switched to " .. theme.Name)
     end)
 end
 
@@ -1521,80 +1673,66 @@ end
 -- PANEL 7: SETTINGS
 -- ═══════════════════════════════════════════════════════════════
 local settingsPanel = CreatePanel("settings", false)
-
 CreateSectionHeader(settingsPanel, "GUI SETTINGS", 1)
+CreateToggle(settingsPanel, "Notifications", "Show in-game notifications", 2, function() end)
+CreateToggle(settingsPanel, "Anti-Detection", "Anti-cheat bypass measures", 3, function() end)
+CreateToggle(settingsPanel, "Streamer Mode", "Hide sensitive info", 4, function() end)
 
-CreateToggle(settingsPanel, "Notifications", "Show in-game notifications", 2, function(enabled) end)
-CreateToggle(settingsPanel, "Anti-Detection", "Enable anti-cheat bypass measures", 3, function(enabled) end)
-CreateToggle(settingsPanel, "Streamer Mode", "Hide sensitive info for streaming", 4, function(enabled) end)
-CreateToggle(settingsPanel, "Smooth Animations", "Enable smooth GUI transitions", 5, function(enabled) end)
-CreateToggle(settingsPanel, "Always On Top", "Keep GUI above other elements", 6, function(enabled) end)
-
-CreateSectionHeader(settingsPanel, "KEYBINDS", 7)
-
-local keybinds = {
-    {"Toggle GUI", "Right Shift"},
-    {"Toggle Fly", "F"},
-    {"Toggle Noclip", "N"},
-}
-
-for i, kb in ipairs(keybinds) do
+CreateSectionHeader(settingsPanel, "KEYBINDS", 5)
+for i, kb in ipairs({{"Toggle GUI", "Right Shift"}, {"Toggle Fly", "F"}, {"Toggle Noclip", "N"}}) do
     local row = Instance.new("Frame")
-    row.Size = UDim2.new(1, 0, 0, 36)
+    row.Size = UDim2.new(1, 0, 0, 38)
     row.BackgroundColor3 = GetTheme().SurfaceHover
     row.BorderSizePixel = 0
-    row.LayoutOrder = 7 + i
+    row.LayoutOrder = 5 + i
     row.Parent = settingsPanel
     CreateCorner(row, 8)
     CreateStroke(row, GetTheme().Border, 1)
+    RegisterThemed(row, {BackgroundColor3 = "SurfaceHover"})
 
-    local actionLabel = Instance.new("TextLabel")
-    actionLabel.Size = UDim2.new(0.6, -10, 1, 0)
-    actionLabel.Position = UDim2.new(0, 15, 0, 0)
-    actionLabel.BackgroundTransparency = 1
-    actionLabel.Text = kb[1]
-    actionLabel.TextColor3 = GetTheme().Text
-    actionLabel.TextSize = 11
-    actionLabel.Font = Enum.Font.GothamMedium
-    actionLabel.TextXAlignment = Enum.TextXAlignment.Left
-    actionLabel.Parent = row
+    local al = Instance.new("TextLabel")
+    al.Size = UDim2.new(0.6, -10, 1, 0)
+    al.Position = UDim2.new(0, 16, 0, 0)
+    al.BackgroundTransparency = 1
+    al.Text = kb[1]
+    al.TextColor3 = GetTheme().Text
+    al.TextSize = 11
+    al.Font = Enum.Font.GothamMedium
+    al.TextXAlignment = Enum.TextXAlignment.Left
+    al.Parent = row
+    RegisterThemed(al, {TextColor3 = "Text"})
 
-    local keyLabel = Instance.new("TextLabel")
-    keyLabel.Size = UDim2.new(0, 80, 0, 24)
-    keyLabel.Position = UDim2.new(1, -95, 0.5, 0)
-    keyLabel.AnchorPoint = Vector2.new(0, 0.5)
-    keyLabel.BackgroundColor3 = GetTheme().Primary
-    keyLabel.BackgroundTransparency = 0.9
-    keyLabel.Text = kb[2]
-    keyLabel.TextColor3 = GetTheme().Primary
-    keyLabel.TextSize = 10
-    keyLabel.Font = Enum.Font.Code
-    keyLabel.Parent = row
-    CreateCorner(keyLabel, 6)
-    CreateStroke(keyLabel, GetTheme().Primary, 1, 0.7)
+    local kl = Instance.new("TextLabel")
+    kl.Size = UDim2.new(0, 85, 0, 26)
+    kl.Position = UDim2.new(1, -100, 0.5, 0)
+    kl.AnchorPoint = Vector2.new(0, 0.5)
+    kl.BackgroundColor3 = GetTheme().Primary
+    kl.BackgroundTransparency = 0.88
+    kl.Text = kb[2]
+    kl.TextColor3 = GetTheme().Primary
+    kl.TextSize = 10
+    kl.Font = Enum.Font.Code
+    kl.Parent = row
+    CreateCorner(kl, 6)
+    CreateStroke(kl, GetTheme().Primary, 1, 0.6)
+    RegisterThemed(kl, {TextColor3 = "Primary"})
 end
 
--- ═══════════════════════════════════════════════════════════════
--- SET DEFAULT ACTIVE PANEL
--- ═══════════════════════════════════════════════════════════════
+-- SET DEFAULT ACTIVE
 if NavButtons["features"] then
-    Tween(NavButtons["features"].Button, {BackgroundTransparency = 0.85, TextColor3 = GetTheme().Primary}, 0.01)
+    Tween(NavButtons["features"].Button, {BackgroundTransparency = 0.8, TextColor3 = GetTheme().Primary}, 0.01)
     Tween(NavButtons["features"].Indicator, {BackgroundTransparency = 0}, 0.01)
 end
 
--- Update top bar title when panel changes
+-- Update top bar title
 spawn(function()
-    local panelTitles = {
-        features = "⚡ FEATURES",
-        server = "🖥️ SERVER INFO",
-        utilities = "🔧 UTILITIES",
-        analyzer = "📜 SCRIPT ANALYZER",
-        credits = "❤️ CREDITS & PLAYER INFO",
-        themes = "🎨 THEMES",
-        settings = "⚙️ SETTINGS",
+    local titles = {
+        features = "⚡ FEATURES", server = "🖥️ SERVER INFO",
+        utilities = "🔧 UTILITIES", analyzer = "📜 SCRIPT ANALYZER",
+        credits = "❤️ CREDITS", themes = "🎨 THEMES", settings = "⚙️ SETTINGS",
     }
     while MainFrame and MainFrame.Parent do
-        TopBarTitle.Text = panelTitles[State.ActivePanel] or "UNIVERSAL v2"
+        TopBarTitle.Text = titles[State.ActivePanel] or "UNIVERSAL v2"
         wait(0.1)
     end
 end)
@@ -1603,80 +1741,58 @@ end)
 -- FEATURE IMPLEMENTATIONS
 -- ═══════════════════════════════════════════════════════════════
 
--- FLY SYSTEM
-local flyBodyVelocity, flyBodyGyro
+-- FLY
+local flyBV, flyBG
 local function StartFly()
     local root = GetRootPart()
     local hum = GetHumanoid()
     if not root or not hum then return end
-    
-    flyBodyVelocity = Instance.new("BodyVelocity")
-    flyBodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-    flyBodyVelocity.Velocity = Vector3.new(0, 0, 0)
-    flyBodyVelocity.Parent = root
-    
-    flyBodyGyro = Instance.new("BodyGyro")
-    flyBodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-    flyBodyGyro.P = 9e4
-    flyBodyGyro.Parent = root
-    
+    -- [FIX] Clean existing first
+    if flyBV then pcall(function() flyBV:Destroy() end) end
+    if flyBG then pcall(function() flyBG:Destroy() end) end
+    flyBV = Instance.new("BodyVelocity")
+    flyBV.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    flyBV.Velocity = Vector3.new(0, 0, 0)
+    flyBV.Parent = root
+    flyBG = Instance.new("BodyGyro")
+    flyBG.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+    flyBG.P = 9e4
+    flyBG.Parent = root
     hum.PlatformStand = true
+    Notify("Fly", "Fly enabled!")
 end
 
 local function StopFly()
     local hum = GetHumanoid()
-    if flyBodyVelocity then flyBodyVelocity:Destroy() flyBodyVelocity = nil end
-    if flyBodyGyro then flyBodyGyro:Destroy() flyBodyGyro = nil end
+    if flyBV then pcall(function() flyBV:Destroy() end) flyBV = nil end
+    if flyBG then pcall(function() flyBG:Destroy() end) flyBG = nil end
     if hum then hum.PlatformStand = false end
 end
 
 RunService.RenderStepped:Connect(function()
-    if State.FlyEnabled then
+    if State.FlyEnabled and flyBV and flyBG then
         local root = GetRootPart()
-        if root and flyBodyVelocity and flyBodyGyro then
-            local speed = State.FlySpeed
-            local direction = Vector3.new(0, 0, 0)
-            
-            if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-                direction = direction + Camera.CFrame.LookVector
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-                direction = direction - Camera.CFrame.LookVector
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-                direction = direction - Camera.CFrame.RightVector
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-                direction = direction + Camera.CFrame.RightVector
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-                direction = direction + Vector3.new(0, 1, 0)
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
-                direction = direction - Vector3.new(0, 1, 0)
-            end
-            
-            if direction.Magnitude > 0 then
-                direction = direction.Unit
-            end
-            
-            flyBodyVelocity.Velocity = direction * speed
-            flyBodyGyro.CFrame = Camera.CFrame
+        if root then
+            local spd = State.FlySpeed
+            local dir = Vector3.new(0, 0, 0)
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + Camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir = dir - Camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir = dir - Camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir = dir + Camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0, 1, 0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then dir = dir - Vector3.new(0, 1, 0) end
+            if dir.Magnitude > 0 then dir = dir.Unit end
+            flyBV.Velocity = dir * spd
+            flyBG.CFrame = Camera.CFrame
         end
     end
 end)
 
--- Watch fly state
 spawn(function()
-    local wasFlying = false
+    local was = false
     while MainFrame and MainFrame.Parent do
-        if State.FlyEnabled and not wasFlying then
-            StartFly()
-            wasFlying = true
-        elseif not State.FlyEnabled and wasFlying then
-            StopFly()
-            wasFlying = false
-        end
+        if State.FlyEnabled and not was then StartFly(); was = true
+        elseif not State.FlyEnabled and was then StopFly(); was = false end
         wait(0.1)
     end
 end)
@@ -1684,10 +1800,8 @@ end)
 -- INFINITE JUMP
 UserInputService.JumpRequest:Connect(function()
     if State.InfiniteJumpEnabled then
-        local hum = GetHumanoid()
-        if hum then
-            hum:ChangeState(Enum.HumanoidStateType.Jumping)
-        end
+        local h = GetHumanoid()
+        if h then h:ChangeState(Enum.HumanoidStateType.Jumping) end
     end
 end)
 
@@ -1696,10 +1810,8 @@ RunService.Stepped:Connect(function()
     if State.NoclipEnabled then
         local char = GetCharacter()
         if char then
-            for _, part in ipairs(char:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = false
-                end
+            for _, p in ipairs(char:GetDescendants()) do
+                if p:IsA("BasePart") then p.CanCollide = false end
             end
         end
     end
@@ -1709,62 +1821,59 @@ end)
 spawn(function()
     while MainFrame and MainFrame.Parent do
         if State.GodModeEnabled then
-            local hum = GetHumanoid()
-            if hum then
-                hum.MaxHealth = math.huge
-                hum.Health = math.huge
-            end
+            local h = GetHumanoid()
+            if h then h.MaxHealth = math.huge; h.Health = math.huge end
         end
         wait(0.5)
     end
 end)
 
--- ESP
+-- ESP (with proper cleanup)
 local espFolder = Instance.new("Folder")
 espFolder.Name = "ExterESP"
 espFolder.Parent = game:GetService("CoreGui")
 
+local espConns = {}
+local espAddConn = nil
+
 local function CreateESP(player)
     if player == LocalPlayer then return end
-    
-    local highlight = Instance.new("Highlight")
-    highlight.Name = "ESP_" .. player.Name
-    highlight.FillColor = GetTheme().Primary
-    highlight.FillTransparency = 0.7
-    highlight.OutlineColor = GetTheme().Primary
-    highlight.OutlineTransparency = 0
-    highlight.Parent = espFolder
-    
-    local function UpdateESP()
-        if player.Character then
-            highlight.Adornee = player.Character
-        end
-    end
-    
-    UpdateESP()
-    player.CharacterAdded:Connect(UpdateESP)
+    local existing = espFolder:FindFirstChild("ESP_" .. player.Name)
+    if existing then existing:Destroy() end
+    local hl = Instance.new("Highlight")
+    hl.Name = "ESP_" .. player.Name
+    hl.FillColor = GetTheme().Primary
+    hl.FillTransparency = 0.7
+    hl.OutlineColor = GetTheme().Primary
+    hl.OutlineTransparency = 0
+    hl.Parent = espFolder
+    local function upd() if player.Character then hl.Adornee = player.Character end end
+    upd()
+    espConns[player.Name] = player.CharacterAdded:Connect(upd)
 end
 
 local function ClearESP()
-    for _, v in ipairs(espFolder:GetChildren()) do
-        v:Destroy()
-    end
+    for _, v in ipairs(espFolder:GetChildren()) do v:Destroy() end
+    for _, c in pairs(espConns) do pcall(function() c:Disconnect() end) end
+    espConns = {}
 end
 
 spawn(function()
-    local wasESP = false
+    local was = false
     while MainFrame and MainFrame.Parent do
-        if State.ESPEnabled and not wasESP then
-            for _, player in ipairs(Players:GetPlayers()) do
-                CreateESP(player)
-            end
-            Players.PlayerAdded:Connect(function(player)
-                if State.ESPEnabled then CreateESP(player) end
+        if State.ESPEnabled and not was then
+            for _, p in ipairs(Players:GetPlayers()) do CreateESP(p) end
+            espAddConn = Players.PlayerAdded:Connect(function(p) if State.ESPEnabled then CreateESP(p) end end)
+            Players.PlayerRemoving:Connect(function(p)
+                local e = espFolder:FindFirstChild("ESP_" .. p.Name)
+                if e then e:Destroy() end
+                if espConns[p.Name] then pcall(function() espConns[p.Name]:Disconnect() end); espConns[p.Name] = nil end
             end)
-            wasESP = true
-        elseif not State.ESPEnabled and wasESP then
+            was = true
+        elseif not State.ESPEnabled and was then
             ClearESP()
-            wasESP = false
+            if espAddConn then pcall(function() espAddConn:Disconnect() end) end
+            was = false
         end
         wait(0.5)
     end
@@ -1772,90 +1881,84 @@ end)
 
 -- INVISIBLE
 spawn(function()
-    local wasInvisible = false
+    local was = false
     while MainFrame and MainFrame.Parent do
-        if State.InvisibleEnabled and not wasInvisible then
+        if State.InvisibleEnabled and not was then
             local char = GetCharacter()
             if char then
-                for _, part in ipairs(char:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.Transparency = 1
-                    elseif part:IsA("Decal") then
-                        part.Transparency = 1
-                    end
+                for _, p in ipairs(char:GetDescendants()) do
+                    if p:IsA("BasePart") then p.Transparency = 1
+                    elseif p:IsA("Decal") then p.Transparency = 1 end
                 end
             end
-            wasInvisible = true
-        elseif not State.InvisibleEnabled and wasInvisible then
+            was = true
+        elseif not State.InvisibleEnabled and was then
             local char = GetCharacter()
             if char then
-                for _, part in ipairs(char:GetDescendants()) do
-                    if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                        part.Transparency = 0
-                    elseif part:IsA("Decal") then
-                        part.Transparency = 0
-                    end
+                for _, p in ipairs(char:GetDescendants()) do
+                    if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then p.Transparency = 0
+                    elseif p:IsA("Decal") then p.Transparency = 0 end
                 end
             end
-            wasInvisible = false
+            was = false
         end
         wait(0.5)
     end
 end)
 
 -- ═══════════════════════════════════════════════════════════════
--- KEYBIND: Toggle GUI (Right Shift)
+-- KEYBINDS
 -- ═══════════════════════════════════════════════════════════════
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
     if input.KeyCode == Enum.KeyCode.RightShift then
         State.GuiVisible = not State.GuiVisible
         if State.GuiVisible then
             MainFrame.Visible = true
-            Tween(MainFrame, {Size = UDim2.new(0, 750, 0, 480)}, 0.3, Enum.EasingStyle.Back)
+            Tween(MainFrame, {Size = UDim2.new(0, 780, 0, 500)}, 0.3, Enum.EasingStyle.Back)
         else
             Tween(MainFrame, {Size = UDim2.new(0, 0, 0, 0)}, 0.2)
             wait(0.2)
             MainFrame.Visible = false
         end
-    end
-    
-    if input.KeyCode == Enum.KeyCode.F and not gameProcessed then
-        -- Toggle fly handled by panel toggle
+    -- [FIX] F key toggles fly
+    elseif input.KeyCode == Enum.KeyCode.F then
+        State.FlyEnabled = not State.FlyEnabled
+    -- [FIX] N key toggles noclip
+    elseif input.KeyCode == Enum.KeyCode.N then
+        State.NoclipEnabled = not State.NoclipEnabled
     end
 end)
 
--- ═══════════════════════════════════════════════════════════════
 -- OPEN ANIMATION
--- ═══════════════════════════════════════════════════════════════
 MainFrame.Size = UDim2.new(0, 0, 0, 0)
 MainFrame.Visible = true
 wait(0.1)
-Tween(MainFrame, {Size = UDim2.new(0, 750, 0, 480)}, 0.5, Enum.EasingStyle.Back)
+Tween(MainFrame, {Size = UDim2.new(0, 780, 0, 500)}, 0.5, Enum.EasingStyle.Back)
 
--- ═══════════════════════════════════════════════════════════════
--- PING UPDATER
--- ═══════════════════════════════════════════════════════════════
+-- [FIX] PING & FPS UPDATER — actually updates the display
 spawn(function()
     while MainFrame and MainFrame.Parent do
-        local ping = math.floor(game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue())
-        -- Update ping display in server panel
         pcall(function()
-            local pingCard = serverInfoFrame:FindFirstChild("Value", true)
-            -- We'll update via the stats
+            local ping = math.floor(game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue())
+            if serverInfoCards["Ping"] then
+                serverInfoCards["Ping"].Text = tostring(ping) .. "ms"
+            end
+        end)
+        pcall(function()
+            local fps = math.floor(1 / RunService.RenderStepped:Wait())
+            if serverInfoCards["FPS"] then
+                serverInfoCards["FPS"].Text = tostring(fps)
+            end
+        end)
+        pcall(function()
+            if serverInfoCards["Players"] then
+                serverInfoCards["Players"].Text = tostring(#Players:GetPlayers()) .. "/" .. tostring(Players.MaxPlayers)
+            end
         end)
         wait(2)
     end
 end)
 
--- ═══════════════════════════════════════════════════════════════
 -- NOTIFICATION
--- ═══════════════════════════════════════════════════════════════
-pcall(function()
-    StarterGui:SetCore("SendNotification", {
-        Title = "🎮 UNIVERSAL v2 v2.5.0",
-        Text = "Script loaded! Press Right Shift to toggle GUI.",
-        Duration = 5,
-    })
-end)
+Notify("🎮 UNIVERSAL v2 v2.6.0", "Script loaded! Press Right Shift to toggle GUI.")
