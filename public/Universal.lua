@@ -1,6 +1,3 @@
--- UNIVERSAL v2 — v2.7.0 FIXED EDITION (Mount Obby Optimized)
--- Fixed: Checkpoint TP + Touch, CP Detection, Auto Summit
--- Optimized for: Mount Puasa, Mount Sawit, Mount Koplo, Mount Palma, Mount Extreme
 
 -- SERVICES
 local Players = game:GetService("Players")
@@ -32,6 +29,7 @@ local State = {
     FlySpeed = 50,
     CurrentTheme = 1,
     AutoSummitRunning = false,
+    SummitCount = 0,
 }
 
 local ThemedElements = {}
@@ -202,9 +200,9 @@ local function ApplyThemeToAll()
     end
 end
 
--- ═══════════════════════════════════════════════════════════════
--- [FIX v2.7] SIMULASI TOUCH — Kunci utama agar CP & summit terdaftar
--- ═══════════════════════════════════════════════════════════════
+-- =====================================================================
+-- [FIX v2.8] SIMULASI TOUCH — Kunci utama agar CP & summit terdaftar
+-- =====================================================================
 local function SimulateTouch(part)
     if not part or not part:IsA("BasePart") then return end
     local root = GetRootPart()
@@ -214,7 +212,7 @@ local function SimulateTouch(part)
     if firetouchinterest then
         pcall(function()
             firetouchinterest(root, part, 0)
-            task.wait(0.12)
+            task.wait(0.15)
             firetouchinterest(root, part, 1)
         end)
         -- Touch with all character parts too
@@ -242,13 +240,39 @@ local function SimulateTouch(part)
     end
 end
 
--- Teleport + Touch simulasi — teleport KE DALAM part
+-- [FIX v2.8] Teleport + Touch — teleport ke ATAS part, bukan di dalam
 local function TeleportAndTouch(targetCFrame, targetPart)
     local root = GetRootPart()
-    if not root then return end
+    local hum = GetHumanoid()
+    if not root or not hum then return end
 
-    -- Teleport langsung ke posisi part
-    root.CFrame = targetCFrame
+    -- Hitung posisi di ATAS part (bukan di dalam)
+    local targetPos = targetCFrame.Position
+    local yOffset = 5
+
+    -- Jika targetPart ada, hitung offset berdasarkan ukuran part
+    if targetPart and targetPart:IsA("BasePart") then
+        yOffset = (targetPart.Size.Y / 2) + 3.5
+    end
+
+    -- Teleport ke atas part dulu
+    local safeCFrame = CFrame.new(targetPos.X, targetPos.Y + yOffset, targetPos.Z)
+    root.CFrame = safeCFrame
+    root.Velocity = Vector3.new(0, 0, 0)
+
+    task.wait(0.15)
+
+    -- Turunkan karakter tepat ke atas part untuk trigger touch
+    if targetPart and targetPart:IsA("BasePart") then
+        local touchCFrame = CFrame.new(
+            targetPart.Position.X,
+            targetPart.Position.Y + (targetPart.Size.Y / 2) + 0.5,
+            targetPart.Position.Z
+        )
+        root.CFrame = touchCFrame
+        root.Velocity = Vector3.new(0, 0, 0)
+    end
+
     task.wait(0.1)
 
     -- Simulasi touch pada target part
@@ -265,32 +289,37 @@ local function TeleportAndTouch(targetCFrame, targetPart)
         end
     end
 
+    task.wait(0.1)
+
+    -- Touch ulang untuk memastikan
+    if targetPart then
+        SimulateTouch(targetPart)
+    end
+
     task.wait(0.05)
 end
 
--- ═══════════════════════════════════════════════════════════════
--- [FIX v2.7] CHECKPOINT SCANNER — Deteksi SEMUA jenis checkpoint
--- ═══════════════════════════════════════════════════════════════
+-- =====================================================================
+-- [FIX v2.8] CHECKPOINT SCANNER — Deteksi LEBIH PRESISI
+-- =====================================================================
 local function ScanCheckpoints()
     local cps = {}
     local seen = {}
 
     local namePatterns = {
-        "checkpoint", "cp", "stage", "check", "point",
-        "flag", "save", "spawn", "level", "zone",
-        "step", "platform", "pad", "plate",
-        "touch", "trigger", "goal", "mark", "node",
-        "waypoint", "progress", "section",
+        "checkpoint", "cp", "stage", "check",
+        "flag", "spawn", "level",
+        "platform", "pad", "plate",
     }
 
     local folderPatterns = {
-        "checkpoint", "cp", "stage", "check", "point",
-        "flag", "save", "level", "zone", "obby",
+        "checkpoint", "cp", "stage", "check",
+        "flag", "level", "obby",
         "course", "path", "track", "mount", "climb",
-        "steps", "platforms", "pads", "waypoint",
+        "steps", "platforms", "pads",
     }
 
-    -- Method 1: Find checkpoint folders
+    -- Method 1: Find checkpoint folders (PRIORITAS UTAMA)
     local cpFolders = {}
     for _, obj in pairs(Workspace:GetDescendants()) do
         if (obj:IsA("Folder") or obj:IsA("Model")) then
@@ -331,7 +360,7 @@ local function ScanCheckpoints()
         end
     end
 
-    -- Method 3: Scan BasePart dengan TouchTransmitter
+    -- Method 3: Scan BasePart dengan TouchTransmitter yang namanya match
     for _, obj in pairs(Workspace:GetDescendants()) do
         if obj:IsA("BasePart") and not seen[obj:GetFullName()] then
             local hasTT = obj:FindFirstChildOfClass("TouchTransmitter")
@@ -357,13 +386,10 @@ local function ScanCheckpoints()
             end
 
             if not isCP then
-                for _, p in ipairs(namePatterns) do
-                    if name:find(p) then
-                        local num = tonumber(name:match("%d+"))
-                        if num then
-                            isCP = true
-                            break
-                        end
+                if (name:find("checkpoint") or name:find("^cp%d") or name:find("^cp_%d") or name:find("^cp %d")) then
+                    local num = tonumber(name:match("%d+"))
+                    if num then
+                        isCP = true
                     end
                 end
             end
@@ -384,24 +410,21 @@ local function ScanCheckpoints()
         end
     end
 
-    -- Method 4: Scan Model yang namanya match
+    -- Method 4: Scan Model yang namanya match checkpoint
     for _, obj in pairs(Workspace:GetDescendants()) do
         if obj:IsA("Model") and not seen[obj:GetFullName()] then
             local name = obj.Name:lower()
-            for _, p in ipairs(namePatterns) do
-                if name:find(p) then
-                    local primary = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
-                    if primary then
-                        seen[obj:GetFullName()] = true
-                        local num = tonumber(obj.Name:match("%d+"))
-                        table.insert(cps, {
-                            Name = obj.Name,
-                            Number = num or 0,
-                            CFrame = primary.CFrame,
-                            Part = primary,
-                        })
-                    end
-                    break
+            if name:find("checkpoint") or name:find("^cp%d") or name:find("^cp_%d") or name:find("^cp %d") then
+                local primary = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+                if primary then
+                    seen[obj:GetFullName()] = true
+                    local num = tonumber(obj.Name:match("%d+"))
+                    table.insert(cps, {
+                        Name = obj.Name,
+                        Number = num or 0,
+                        CFrame = primary.CFrame,
+                        Part = primary,
+                    })
                 end
             end
         end
@@ -460,9 +483,9 @@ local function ScanCheckpoints()
     return filtered
 end
 
--- ═══════════════════════════════════════════════════════════════
--- [FIX v2.7] SCAN FINISH/SUMMIT ZONES
--- ═══════════════════════════════════════════════════════════════
+-- =====================================================================
+-- [FIX v2.8] SCAN FINISH/SUMMIT ZONES
+-- =====================================================================
 local function ScanFinishZones()
     local zones = {}
     local finishPatterns = {
@@ -498,9 +521,9 @@ local function ScanFinishZones()
     return zones
 end
 
--- ═══════════════════════════════════════════════════════════════
--- [FIX v2.7] FIRE ALL RELATED REMOTES
--- ═══════════════════════════════════════════════════════════════
+-- =====================================================================
+-- [FIX v2.8] FIRE ALL RELATED REMOTES — Lebih agresif
+-- =====================================================================
 local function FireAllRemotes()
     local fired = 0
     local log = ""
@@ -508,10 +531,11 @@ local function FireAllRemotes()
         "submit", "finish", "complete", "win", "done",
         "summit", "reward", "claim", "collect",
         "checkpoint", "save", "progress", "stage",
-        "clear", "pass", "beat",
+        "clear", "pass", "beat", "climb", "reach",
+        "touch", "arrive", "register", "count",
+        "add", "increment", "update",
     }
 
-    -- Scan ReplicatedStorage
     pcall(function()
         for _, v in pairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
             if v:IsA("RemoteEvent") then
@@ -521,6 +545,9 @@ local function FireAllRemotes()
                         pcall(function() v:FireServer(); fired = fired + 1; log = log .. "RE:" .. v.Name .. " " end)
                         pcall(function() v:FireServer(true) end)
                         pcall(function() v:FireServer(LocalPlayer) end)
+                        pcall(function() v:FireServer(1) end)
+                        pcall(function() v:FireServer("summit") end)
+                        pcall(function() v:FireServer("complete") end)
                         break
                     end
                 end
@@ -530,6 +557,7 @@ local function FireAllRemotes()
                     if n:find(p) then
                         pcall(function() v:InvokeServer(); fired = fired + 1; log = log .. "RF:" .. v.Name .. " " end)
                         pcall(function() v:InvokeServer(true) end)
+                        pcall(function() v:InvokeServer(1) end)
                         break
                     end
                 end
@@ -537,7 +565,6 @@ local function FireAllRemotes()
         end
     end)
 
-    -- Scan Workspace
     pcall(function()
         for _, v in pairs(Workspace:GetDescendants()) do
             if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
@@ -545,7 +572,13 @@ local function FireAllRemotes()
                 for _, p in ipairs(remotePatterns) do
                     if n:find(p) then
                         pcall(function()
-                            if v:IsA("RemoteEvent") then v:FireServer() else v:InvokeServer() end
+                            if v:IsA("RemoteEvent") then
+                                v:FireServer()
+                                pcall(function() v:FireServer(true) end)
+                                pcall(function() v:FireServer(1) end)
+                            else
+                                v:InvokeServer()
+                            end
                             fired = fired + 1
                             log = log .. v.Name .. " "
                         end)
@@ -557,6 +590,50 @@ local function FireAllRemotes()
     end)
 
     return fired, log
+end
+
+-- [FIX v2.8] Fire remotes spesifik untuk summit/finish
+local function FireSummitRemotes()
+    local fired = 0
+    local summitPatterns = {
+        "summit", "finish", "complete", "win", "done",
+        "reward", "claim", "collect", "clear", "beat",
+        "puncak", "selesai", "menang",
+    }
+
+    pcall(function()
+        for _, v in pairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
+            if v:IsA("RemoteEvent") then
+                local n = v.Name:lower()
+                for _, p in ipairs(summitPatterns) do
+                    if n:find(p) then
+                        pcall(function()
+                            v:FireServer()
+                            v:FireServer(true)
+                            v:FireServer(1)
+                            v:FireServer(LocalPlayer)
+                            fired = fired + 1
+                        end)
+                        break
+                    end
+                end
+            elseif v:IsA("RemoteFunction") then
+                local n = v.Name:lower()
+                for _, p in ipairs(summitPatterns) do
+                    if n:find(p) then
+                        pcall(function()
+                            v:InvokeServer()
+                            v:InvokeServer(true)
+                            fired = fired + 1
+                        end)
+                        break
+                    end
+                end
+            end
+        end
+    end)
+
+    return fired
 end
 
 -- DESTROY EXISTING GUI
@@ -697,7 +774,7 @@ local LogoSub = Instance.new("TextLabel")
 LogoSub.Size = UDim2.new(1, -60, 0, 14)
 LogoSub.Position = UDim2.new(0, 56, 0, 34)
 LogoSub.BackgroundTransparency = 1
-LogoSub.Text = "v2.7.0 — Mount Obby Fixed"
+LogoSub.Text = "v2.8.0 — Mount Obby Fixed"
 LogoSub.TextColor3 = GetTheme().TextSecondary
 LogoSub.TextSize = 9
 LogoSub.Font = Enum.Font.Gotham
@@ -1106,9 +1183,9 @@ local function CreateActionButton(parent, label, color, order, callback)
     return btn
 end
 
--- ═══════════════════════════════════════════════════════════════
+-- =====================================================================
 -- PANEL 1: FEATURES
--- ═══════════════════════════════════════════════════════════════
+-- =====================================================================
 local featuresPanel = CreatePanel("features", true)
 CreateSectionHeader(featuresPanel, "GAME MODIFICATIONS", 1)
 CreateToggle(featuresPanel, "FLY", "Fly freely (Press F to toggle)", 2, function(e) State.FlyEnabled = e end)
@@ -1123,9 +1200,9 @@ CreateSlider(featuresPanel, "PLAYER SPEED", 1, 500, 16, 8, function(v)
 end)
 CreateSlider(featuresPanel, "FLY SPEED", 1, 500, 50, 9, function(v) State.FlySpeed = v end)
 
--- ═══════════════════════════════════════════════════════════════
+-- =====================================================================
 -- PANEL 2: SERVER INFO
--- ═══════════════════════════════════════════════════════════════
+-- =====================================================================
 local serverPanel = CreatePanel("server", false)
 CreateSectionHeader(serverPanel, "SERVER DETAILS", 1)
 
@@ -1191,9 +1268,9 @@ for _, stat in ipairs(serverStats) do
     serverInfoCards[stat[1]] = sValue
 end
 
--- ═══════════════════════════════════════════════════════════════
--- [FIX v2.7] CHECKPOINT TELEPORT + AUTO SUMMIT
--- ═══════════════════════════════════════════════════════════════
+-- =====================================================================
+-- [FIX v2.8] CHECKPOINT TELEPORT + AUTO SUMMIT
+-- =====================================================================
 CreateSectionHeader(serverPanel, "TELEPORT & AUTO SUMMIT", 3)
 
 local tpFrame = Instance.new("Frame")
@@ -1233,6 +1310,7 @@ CreateActionButton(quickRow, "🏠 TP to Spawn", GetTheme().Primary, 1, function
     end
     if spawnPart and spawnPart:IsA("BasePart") then
         root.CFrame = spawnPart.CFrame + Vector3.new(0, 5, 0)
+        root.Velocity = Vector3.new(0, 0, 0)
         SimulateTouch(spawnPart)
         Notify("Teleport", "Teleported to Spawn!")
     else
@@ -1244,6 +1322,11 @@ CreateActionButton(quickRow, "🏔️ TP to Finish", GetTheme().Success, 2, func
     local zones = ScanFinishZones()
     if #zones > 0 then
         TeleportAndTouch(zones[1].CFrame, zones[1].Part)
+        task.wait(0.3)
+        SimulateTouch(zones[1].Part)
+        task.wait(0.2)
+        SimulateTouch(zones[1].Part)
+        FireSummitRemotes()
         Notify("Teleport", "TP + Touch: " .. zones[1].Name)
     else
         Notify("Teleport", "No finish zone found!")
@@ -1396,7 +1479,7 @@ cpTpAllBtn.MouseButton1Click:Connect(function()
         for i, cp in ipairs(currentCPs) do
             cpCountLabel.Text = "⚡ TP " .. i .. "/" .. #currentCPs .. " — " .. cp.Name
             TeleportAndTouch(cp.CFrame, cp.Part)
-            task.wait(0.3)
+            task.wait(0.4)
         end
         cpCountLabel.Text = "✅ All " .. #currentCPs .. " CPs touched!"
         Notify("✅ TP All", "Done! " .. #currentCPs .. " CPs touched")
@@ -1405,11 +1488,11 @@ end)
 
 spawn(function() wait(1); RefreshCheckpoints() end)
 
--- ═══════════════════════════════════════════════════════════════
--- [FIX v2.7] AUTO SUMMIT PANEL
--- ═══════════════════════════════════════════════════════════════
+-- =====================================================================
+-- [FIX v2.8] AUTO SUMMIT PANEL — Summit counter yang berfungsi
+-- =====================================================================
 local asFrame = Instance.new("Frame")
-asFrame.Size = UDim2.new(1, 0, 0, 190)
+asFrame.Size = UDim2.new(1, 0, 0, 210)
 asFrame.BackgroundColor3 = GetTheme().SurfaceHover
 asFrame.BorderSizePixel = 0
 asFrame.LayoutOrder = 3
@@ -1433,7 +1516,7 @@ local asDesc = Instance.new("TextLabel")
 asDesc.Size = UDim2.new(1, -20, 0, 24)
 asDesc.Position = UDim2.new(0, 14, 0, 28)
 asDesc.BackgroundTransparency = 1
-asDesc.Text = "TP all CP + Touch → TP Finish + Touch → Fire Remotes → Loop"
+asDesc.Text = "TP all CP (berurutan) → TP Finish + Touch → Fire Remotes → Loop"
 asDesc.TextColor3 = GetTheme().TextSecondary
 asDesc.TextSize = 9
 asDesc.Font = Enum.Font.Gotham
@@ -1442,9 +1525,21 @@ asDesc.TextWrapped = true
 asDesc.Parent = asFrame
 RegisterThemed(asDesc, {TextColor3 = "TextSecondary"})
 
+-- Summit counter display
+local summitCountLabel = Instance.new("TextLabel")
+summitCountLabel.Size = UDim2.new(1, -20, 0, 20)
+summitCountLabel.Position = UDim2.new(0, 14, 0, 50)
+summitCountLabel.BackgroundTransparency = 1
+summitCountLabel.Text = "🏆 Summit Count: 0"
+summitCountLabel.TextColor3 = Color3.fromHex("#ffaa00")
+summitCountLabel.TextSize = 12
+summitCountLabel.Font = Enum.Font.GothamBold
+summitCountLabel.TextXAlignment = Enum.TextXAlignment.Left
+summitCountLabel.Parent = asFrame
+
 local asBtnRow = Instance.new("Frame")
 asBtnRow.Size = UDim2.new(1, -16, 0, 36)
-asBtnRow.Position = UDim2.new(0, 8, 0, 56)
+asBtnRow.Position = UDim2.new(0, 8, 0, 74)
 asBtnRow.BackgroundTransparency = 1
 asBtnRow.Parent = asFrame
 
@@ -1455,8 +1550,8 @@ asBtnLayout.SortOrder = Enum.SortOrder.LayoutOrder
 asBtnLayout.Parent = asBtnRow
 
 local asLog = Instance.new("TextLabel")
-asLog.Size = UDim2.new(1, -20, 0, 80)
-asLog.Position = UDim2.new(0, 14, 0, 98)
+asLog.Size = UDim2.new(1, -20, 0, 90)
+asLog.Position = UDim2.new(0, 14, 0, 116)
 asLog.BackgroundTransparency = 1
 asLog.Text = "Ready — Press Auto Summit to start"
 asLog.TextColor3 = GetTheme().TextSecondary
@@ -1467,6 +1562,82 @@ asLog.TextWrapped = true
 asLog.TextYAlignment = Enum.TextYAlignment.Top
 asLog.Parent = asFrame
 RegisterThemed(asLog, {TextColor3 = "TextSecondary"})
+
+-- [FIX v2.8] Fungsi utama Auto Summit
+local function DoSummitRun(logFunc)
+    logFunc("🔍 Scanning checkpoints...")
+    local cps = ScanCheckpoints()
+    logFunc("✅ Found " .. #cps .. " CPs")
+
+    -- Step 1: Teleport melalui SEMUA checkpoint berurutan
+    if #cps > 0 then
+        logFunc("🚩 Teleporting through CPs...")
+        for i, cp in ipairs(cps) do
+            if not State.AutoSummitRunning then logFunc("⏹️ Stopped"); return false end
+            logFunc("📍 CP " .. i .. "/" .. #cps .. ": " .. cp.Name)
+            TeleportAndTouch(cp.CFrame, cp.Part)
+            task.wait(0.4)
+        end
+        logFunc("✅ All CPs touched!")
+        task.wait(0.3)
+    end
+
+    if not State.AutoSummitRunning then return false end
+
+    -- Step 2: Teleport ke finish/summit zones
+    logFunc("🏔️ Scanning finish zones...")
+    local zones = ScanFinishZones()
+    logFunc("✅ Found " .. #zones .. " finish zone(s)")
+
+    for _, zone in ipairs(zones) do
+        if not State.AutoSummitRunning then return false end
+        logFunc("📍 Finish: " .. zone.Name)
+        TeleportAndTouch(zone.CFrame, zone.Part)
+        task.wait(0.3)
+        SimulateTouch(zone.Part)
+        task.wait(0.2)
+        SimulateTouch(zone.Part)
+        task.wait(0.2)
+        SimulateTouch(zone.Part)
+    end
+
+    if not State.AutoSummitRunning then return false end
+
+    -- Step 3: Fire semua remote yang relevan
+    logFunc("📡 Firing summit remotes...")
+    local summitFired = FireSummitRemotes()
+    if summitFired > 0 then logFunc("✅ Fired " .. summitFired .. " summit remotes") end
+
+    logFunc("📡 Firing all remotes...")
+    local fired, remoteLog = FireAllRemotes()
+    if fired > 0 then logFunc("✅ Fired " .. fired .. " remotes") end
+
+    task.wait(0.3)
+
+    -- Step 4: Re-touch finish zones beberapa kali
+    for _, zone in ipairs(zones) do
+        TeleportAndTouch(zone.CFrame, zone.Part)
+        task.wait(0.3)
+        SimulateTouch(zone.Part)
+        task.wait(0.2)
+    end
+
+    -- Step 5: Fire remotes lagi setelah re-touch
+    task.wait(0.2)
+    FireSummitRemotes()
+    FireAllRemotes()
+
+    -- Increment summit counter
+    State.SummitCount = State.SummitCount + 1
+    summitCountLabel.Text = "🏆 Summit Count: " .. State.SummitCount
+
+    logFunc("═══════════════════")
+    logFunc("🏔️ SUMMIT #" .. State.SummitCount .. " COMPLETE!")
+    logFunc("CPs:" .. #cps .. " Finish:" .. #zones .. " Remotes:" .. fired)
+    Notify("🏔️ Summit #" .. State.SummitCount, "Done! CPs:" .. #cps .. " R:" .. fired)
+
+    return true
+end
 
 -- AUTO SUMMIT (single run)
 CreateActionButton(asBtnRow, "🏔️ Summit 1x", GetTheme().Success, 1, function()
@@ -1480,57 +1651,11 @@ CreateActionButton(asBtnRow, "🏔️ Summit 1x", GetTheme().Success, 1, functio
         local totalLog = ""
         local function Log(msg)
             totalLog = msg .. "\n" .. totalLog
-            if #totalLog > 400 then totalLog = totalLog:sub(1, 400) end
+            if #totalLog > 500 then totalLog = totalLog:sub(1, 500) end
             asLog.Text = totalLog
         end
 
-        Log("🔍 Scanning checkpoints...")
-        local cps = ScanCheckpoints()
-        Log("✅ Found " .. #cps .. " CPs")
-
-        if #cps > 0 then
-            Log("🚩 Teleporting through CPs...")
-            for i, cp in ipairs(cps) do
-                if not State.AutoSummitRunning then Log("⏹️ Stopped"); return end
-                Log("📍 CP " .. i .. "/" .. #cps .. ": " .. cp.Name)
-                TeleportAndTouch(cp.CFrame, cp.Part)
-                task.wait(0.25)
-            end
-            Log("✅ All CPs touched!")
-        end
-
-        if not State.AutoSummitRunning then return end
-
-        Log("🏔️ Scanning finish zones...")
-        local zones = ScanFinishZones()
-        Log("✅ Found " .. #zones .. " finish zone(s)")
-
-        for _, zone in ipairs(zones) do
-            if not State.AutoSummitRunning then return end
-            Log("📍 Finish: " .. zone.Name)
-            TeleportAndTouch(zone.CFrame, zone.Part)
-            task.wait(0.2)
-            SimulateTouch(zone.Part)
-            task.wait(0.15)
-            SimulateTouch(zone.Part)
-        end
-
-        if not State.AutoSummitRunning then return end
-
-        Log("📡 Firing remotes...")
-        local fired, remoteLog = FireAllRemotes()
-        if fired > 0 then Log("✅ Fired " .. fired .. " remotes: " .. remoteLog) end
-
-        -- Re-touch finish
-        for _, zone in ipairs(zones) do
-            TeleportAndTouch(zone.CFrame, zone.Part)
-            task.wait(0.2)
-        end
-
-        Log("═══════════════════")
-        Log("🏔️ SUMMIT COMPLETE!")
-        Log("CPs:" .. #cps .. " Finish:" .. #zones .. " Remotes:" .. fired)
-        Notify("🏔️ Summit", "Done! CPs:" .. #cps .. " R:" .. fired)
+        DoSummitRun(Log)
         State.AutoSummitRunning = false
     end)
 end)
@@ -1549,48 +1674,43 @@ CreateActionButton(asBtnRow, "🔁 Loop", Color3.fromHex("#ffaa00"), 2, function
         local loopCount = 0
         while State.AutoSummitRunning do
             loopCount = loopCount + 1
-            asLog.Text = "🔁 Loop #" .. loopCount .. "..."
-
-            local cps = ScanCheckpoints()
-            for i, cp in ipairs(cps) do
-                if not State.AutoSummitRunning then return end
-                asLog.Text = "🔁 #" .. loopCount .. " CP " .. i .. "/" .. #cps
-                TeleportAndTouch(cp.CFrame, cp.Part)
-                task.wait(0.2)
+            local totalLog = ""
+            local function Log(msg)
+                totalLog = "🔁 #" .. loopCount .. " | " .. msg .. "\n" .. totalLog
+                if #totalLog > 500 then totalLog = totalLog:sub(1, 500) end
+                asLog.Text = totalLog
             end
 
-            if not State.AutoSummitRunning then return end
+            Log("Starting loop #" .. loopCount .. "...")
 
-            local zones = ScanFinishZones()
-            for _, zone in ipairs(zones) do
-                if not State.AutoSummitRunning then return end
-                TeleportAndTouch(zone.CFrame, zone.Part)
-                task.wait(0.2)
-                SimulateTouch(zone.Part)
-                task.wait(0.1)
-                SimulateTouch(zone.Part)
-            end
+            local success = DoSummitRun(Log)
 
-            local fired = FireAllRemotes()
+            if not State.AutoSummitRunning then break end
 
-            -- Re-touch finish
-            for _, zone in ipairs(zones) do
-                TeleportAndTouch(zone.CFrame, zone.Part)
-                task.wait(0.15)
-            end
+            if success then
+                Log("✅ Loop #" .. loopCount .. " complete! Waiting 2s...")
+                task.wait(2)
 
-            asLog.Text = "🔁 #" .. loopCount .. " done! CPs:" .. #cps .. " R:" .. fired .. " | Wait 2s..."
-            Notify("🔁 Loop #" .. loopCount, "Summit complete!")
-
-            task.wait(2)
-
-            -- TP back to spawn
-            if State.AutoSummitRunning then
-                local spawnPart = Workspace:FindFirstChildOfClass("SpawnLocation")
-                if spawnPart then
-                    local root = GetRootPart()
-                    if root then root.CFrame = spawnPart.CFrame + Vector3.new(0, 5, 0) end
+                -- TP back to spawn untuk mulai lagi
+                if State.AutoSummitRunning then
+                    local spawnPart = Workspace:FindFirstChildOfClass("SpawnLocation")
+                    if not spawnPart then
+                        for _, n in ipairs({"SpawnLocation", "Spawn", "spawn", "SpawnPoint"}) do
+                            spawnPart = Workspace:FindFirstChild(n, true)
+                            if spawnPart then break end
+                        end
+                    end
+                    if spawnPart and spawnPart:IsA("BasePart") then
+                        local root = GetRootPart()
+                        if root then
+                            root.CFrame = spawnPart.CFrame + Vector3.new(0, 5, 0)
+                            root.Velocity = Vector3.new(0, 0, 0)
+                            SimulateTouch(spawnPart)
+                        end
+                    end
+                    task.wait(1.5)
                 end
+            else
                 task.wait(1)
             end
         end
@@ -1602,7 +1722,8 @@ CreateActionButton(asBtnRow, "🔍 Remotes", GetTheme().Primary, 3, function()
     local remotePatterns = {
         "submit", "finish", "complete", "win", "done", "summit",
         "reward", "claim", "collect", "checkpoint", "save", "progress",
-        "stage", "clear", "pass", "beat",
+        "stage", "clear", "pass", "beat", "climb", "reach",
+        "touch", "arrive", "register", "count", "add", "increment",
     }
     local found = 0
     local log = ""
@@ -1614,6 +1735,20 @@ CreateActionButton(asBtnRow, "🔍 Remotes", GetTheme().Primary, 3, function()
                     if n:find(p) then
                         found = found + 1
                         log = log .. v.ClassName:sub(1,2) .. ":" .. v.Name .. "\n"
+                        break
+                    end
+                end
+            end
+        end
+    end)
+    pcall(function()
+        for _, v in pairs(Workspace:GetDescendants()) do
+            if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
+                local n = v.Name:lower()
+                for _, p in ipairs(remotePatterns) do
+                    if n:find(p) then
+                        found = found + 1
+                        log = log .. "[WS]" .. v.ClassName:sub(1,2) .. ":" .. v.Name .. "\n"
                         break
                     end
                 end
@@ -1720,6 +1855,7 @@ local function RefreshPlayerList(q)
                 local tc = p.Character
                 if root and tc and tc:FindFirstChild("HumanoidRootPart") then
                     root.CFrame = tc.HumanoidRootPart.CFrame + Vector3.new(0, 3, 0)
+                    root.Velocity = Vector3.new(0, 0, 0)
                     Notify("Teleport", "TP to " .. p.DisplayName)
                 end
             end)
@@ -1732,9 +1868,9 @@ searchBox:GetPropertyChangedSignal("Text"):Connect(function() RefreshPlayerList(
 Players.PlayerAdded:Connect(function() RefreshPlayerList(searchBox.Text) end)
 Players.PlayerRemoving:Connect(function() wait(0.1) RefreshPlayerList(searchBox.Text) end)
 
--- ═══════════════════════════════════════════════════════════════
+-- =====================================================================
 -- PANEL 3: UTILITIES
--- ═══════════════════════════════════════════════════════════════
+-- =====================================================================
 local utilPanel = CreatePanel("utilities", false)
 CreateSectionHeader(utilPanel, "CHARACTER CONTROLS", 1)
 CreateSlider(utilPanel, "WALKSPEED", 0, 500, 16, 2, function(v)
@@ -1784,9 +1920,9 @@ CreateActionButton(ubFrame, "🔀 Server Hop", Color3.fromHex("#7b2dff"), 4, fun
     end)
 end)
 
--- ═══════════════════════════════════════════════════════════════
+-- =====================================================================
 -- PANEL 4: ANALYZER
--- ═══════════════════════════════════════════════════════════════
+-- =====================================================================
 local analyzerPanel = CreatePanel("analyzer", false)
 CreateSectionHeader(analyzerPanel, "DETECTED SCRIPTS", 1)
 
@@ -1853,9 +1989,9 @@ for _, st in ipairs({
     RegisterThemed(lb, {TextColor3 = "TextSecondary"})
 end
 
--- ═══════════════════════════════════════════════════════════════
+-- =====================================================================
 -- PANEL 5: CREDITS
--- ═══════════════════════════════════════════════════════════════
+-- =====================================================================
 local creditsPanel = CreatePanel("credits", false)
 CreateSectionHeader(creditsPanel, "PLAYER INFO", 1)
 
@@ -1986,16 +2122,16 @@ RegisterThemed(verFrame, {BackgroundColor3 = "SurfaceHover"})
 local verText = Instance.new("TextLabel")
 verText.Size = UDim2.new(1, 0, 1, 0)
 verText.BackgroundTransparency = 1
-verText.Text = "UNIVERSAL v2 v2.7.0 • Mount Obby Fixed • Built with ❤️"
+verText.Text = "UNIVERSAL v2 v2.8.0 • Mount Obby Fixed • Built with ❤️"
 verText.TextColor3 = GetTheme().TextSecondary
 verText.TextSize = 10
 verText.Font = Enum.Font.Gotham
 verText.Parent = verFrame
 RegisterThemed(verText, {TextColor3 = "TextSecondary"})
 
--- ═══════════════════════════════════════════════════════════════
+-- =====================================================================
 -- PANEL 6: THEMES
--- ═══════════════════════════════════════════════════════════════
+-- =====================================================================
 local themesPanel = CreatePanel("themes", false)
 CreateSectionHeader(themesPanel, "SELECT THEME (Live Switch)", 1)
 
@@ -2066,9 +2202,9 @@ for i, theme in ipairs(Themes) do
     end)
 end
 
--- ═══════════════════════════════════════════════════════════════
+-- =====================================================================
 -- PANEL 7: SETTINGS
--- ═══════════════════════════════════════════════════════════════
+-- =====================================================================
 local settingsPanel = CreatePanel("settings", false)
 CreateSectionHeader(settingsPanel, "GUI SETTINGS", 1)
 CreateToggle(settingsPanel, "Notifications", "Show in-game notifications", 2, function() end)
@@ -2131,9 +2267,9 @@ spawn(function()
     end
 end)
 
--- ═══════════════════════════════════════════════════════════════
+-- =====================================================================
 -- FEATURE IMPLEMENTATIONS
--- ═══════════════════════════════════════════════════════════════
+-- =====================================================================
 
 -- FLY
 local flyBV, flyBG
@@ -2294,9 +2430,9 @@ spawn(function()
     end
 end)
 
--- ═══════════════════════════════════════════════════════════════
+-- =====================================================================
 -- KEYBINDS
--- ═══════════════════════════════════════════════════════════════
+-- =====================================================================
 UserInputService.InputBegan:Connect(function(input, gpe)
     if gpe then return end
     if input.KeyCode == Enum.KeyCode.RightShift then
@@ -2342,4 +2478,4 @@ spawn(function()
     end
 end)
 
-Notify("🏔️ UNIVERSAL v2 v2.7.0", "Mount Obby Fixed! Press RShift to toggle.")
+Notify("🏔️ UNIVERSAL v2 v2.8.0", "Mount Obby Fixed! Press RShift to toggle.")
